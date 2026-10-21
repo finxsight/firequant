@@ -18,6 +18,14 @@ firequant-backtest = { workspace = true }
 firequant-exec = { workspace = true }
 firequant-polars = { workspace = true, optional = true }
 chrono = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+polars = { workspace = true }
+
+[[example]]
+name = "eodhd_rsi_backtest"
+path = "../examples/eodhd_rsi_backtest.rs"
 
 [[example]]
 name = "order_sim"

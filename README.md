@@ -20,6 +20,13 @@ Requires **Rust nightly** (see `rust-toolchain.toml`).
 cargo test --workspace
 ```
 
+Live EODHD smoke (needs `EODHD_API_KEY`):
+
+```bash
+cargo test -p firequant --test eodhd_live -- --nocapture
+cargo run -p firequant --example eodhd_rsi_backtest -- MSFT.US
+```
+
 ## Quick example (order sim)
 
 ```rust
