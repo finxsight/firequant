@@ -1,0 +1,29 @@
+[workspace]
+members = ["rustquant", "rustquant-core", "rustquant-exec"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/finxsight/rustquant"
+description = "Lean Rust execution engine and streaming quant primitives (forked from QuantWave core ideas)."
+authors = ["Finxsight"]
+readme = "README.md"
+categories = ["science", "finance"]
+keywords = ["trading", "backtesting", "execution", "quantitative-finance"]
+
+[workspace.dependencies]
+thiserror = "2.0"
+serde = { version = "1.0", features = ["derive"] }
+chrono = { version = "0.4", features = ["serde"] }
+rustquant-core = { path = "rustquant-core", version = "0.1.0" }
+rustquant-exec = { path = "rustquant-exec", version = "0.1.0" }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+panic = "deny"
+unwrap_used = "warn"
+expect_used = "warn"

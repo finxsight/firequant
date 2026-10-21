@@ -1,0 +1,24 @@
+[package]
+name = "rustquant-exec"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Deterministic order fills, brackets, and stepping simulation (no Polars)."
+repository.workspace = true
+readme = "../README.md"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+panic = "deny"
+unwrap_used = "deny"
+expect_used = "deny"
+needless_range_loop = "allow"
+
+[dependencies]
+rustquant-core = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+chrono = { workspace = true }

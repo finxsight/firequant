@@ -1,0 +1,16 @@
+[package]
+name = "rustquant-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Streaming indicator traits and shared primitives for rustquant."
+repository.workspace = true
+readme = "../README.md"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { workspace = true }
+thiserror = { workspace = true }

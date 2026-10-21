@@ -1,0 +1,18 @@
+[package]
+name = "rustquant"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description.workspace = true
+repository.workspace = true
+readme = "../README.md"
+
+[dependencies]
+rustquant-core = { workspace = true }
+rustquant-exec = { workspace = true }
+chrono = { workspace = true }
+
+[[example]]
+name = "order_sim"
+path = "../examples/order_sim.rs"
