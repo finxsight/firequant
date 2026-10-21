@@ -1,41 +1,43 @@
 # firequant
 
-Lean Rust library for **streaming indicators** and **deterministic order execution**, built for [FIRE](https://finxsight.com) / Finxsight. Adapted from [QuantWave](https://github.com/lavs9/quantwave) with Python, Polars plugins, WASM, and notebook-oriented backtest surfaces removed.
+FIRE / Finxsight **Rust quant toolkit** — indicators, regimes, options analytics, Polars TA plugins, and an execution-aware backtest engine. Functionally aligned with [QuantWave](https://github.com/lavs9/quantwave) **without** Python, WASM, or PyPI packaging.
 
 ## Crates
 
 | Crate | Role |
 |-------|------|
-| `firequant` | Facade re-exporting `core` and `exec` |
-| `firequant-core` | `Next<T>` trait, warmup tracking, shared utilities |
-| `firequant-exec` | Order types, OHLC fills, brackets/OCO, stepping `OrderSim`, stops, live-bridge trait |
+| `firequant` | Facade: `core`, `backtest`, `exec`, optional `polars` |
+| `firequant-core` | Indicators, features, regimes, `Next<T>` streaming |
+| `firequant-backtest` | Polars batch + streaming sim, metrics, walk-forward, Monte Carlo |
+| `firequant-polars` | Polars expression plugins (`ta`, `bt` namespaces) |
+| `firequant-exec` | Thin re-export of order/fill types and `OrderSim` |
 
-## Quick example
+## Toolchain
 
-```rust
-use firequant::exec::{
-    CostModel, ExecutionModel, Order, OrderSim, OrderType, Side, ExecBar,
-};
-use chrono::Utc;
-
-let exec = ExecutionModel::Simple(CostModel::default());
-let mut sim = OrderSim::new(&exec);
-let ts = Utc::now();
-let bar = ExecBar { open: 100.0, high: 101.0, low: 99.0, close: 100.5 };
-sim.step(ts, bar, &[Order::new(Side::Buy, OrderType::Market, 10.0)]);
-let trades = sim.finish();
-```
-
-## Build
+Requires **Rust nightly** (see `rust-toolchain.toml`).
 
 ```bash
 cargo test --workspace
 ```
 
+## Quick example (order sim)
+
+```rust
+use firequant::exec::{
+    CostModel, ExecutionModel, ExecBar, Order, OrderSim, OrderType, Side,
+};
+
+let exec = ExecutionModel::Simple(CostModel::default());
+let mut sim = OrderSim::new(&exec);
+// ... step bars, then sim.finish()
+```
+
+## Polars
+
+```rust
+use firequant::polars; // registers expression plugins when linked
+```
+
 ## License
 
-MIT — see [LICENSE](LICENSE). Upstream QuantWave is also MIT; see [docs/ATTRIBUTION.md](docs/ATTRIBUTION.md).
-
-## Roadmap
-
-See [docs/ROADMAP.md](docs/ROADMAP.md).
+MIT — upstream QuantWave is MIT; see [docs/ATTRIBUTION.md](docs/ATTRIBUTION.md).

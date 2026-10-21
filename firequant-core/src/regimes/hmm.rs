@@ -1,0 +1,169 @@
+//! Hidden Markov Models (Hamilton 1989)
+//!
+//! Source: Hamilton, J. D. (1989).
+//! "A New Approach to the Economic Analysis of Nonstationary Time Series and the Business Cycle."
+//! Econometrica, 57(2), 357-384.
+//!
+//! Implementation of a regime-switching Hidden Markov Model with Gaussian emissions.
+//! Includes the Viterbi algorithm for online state decoding and placeholder for Baum-Welch training.
+
+use crate::regimes::MarketRegime;
+use crate::traits::Next;
+use serde::{Deserialize, Serialize};
+
+/// A Hidden Markov Model for regime detection.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HMM {
+    n_states: usize,
+    /// Transition probability matrix [from_state][to_state]
+    a: Vec<Vec<f64>>,
+    /// Emission means for each state
+    means: Vec<f64>,
+    /// Emission standard deviations for each state
+    stds: Vec<f64>,
+    /// Initial state probabilities
+    pi: Vec<f64>,
+    /// Last Viterbi log-probabilities for each state
+    last_delta: Vec<f64>,
+    initialized: bool,
+}
+
+impl HMM {
+    /// Creates a new HMM with pre-defined parameters.
+    pub fn new(a: Vec<Vec<f64>>, means: Vec<f64>, stds: Vec<f64>, pi: Vec<f64>) -> Self {
+        let n_states = a.len();
+        Self {
+            n_states,
+            a,
+            means,
+            stds,
+            pi,
+            last_delta: vec![0.0; n_states],
+            initialized: false,
+        }
+    }
+
+    /// Default 2-state HMM (Bull/Bear).
+    ///
+    /// **Input contract: feed daily returns, not price.** The Gaussian emission
+    /// parameters below are hardcoded to the scale of daily fractional returns
+    /// (means near `0.001`/`-0.002`, stds near `0.01`/`0.02`). Feeding a raw price
+    /// series (e.g. `100.0`) makes `gaussian_pdf` underflow to `0.0` for *every*
+    /// state, which drives every `next()` call into a `-inf`/`-inf` tie that always
+    /// resolves to state `0` (Bull) — i.e. a silently constant output. The
+    /// `hmm_bull_bear` plugin wrapper (firequant-py) calls [`Self::is_degenerate`]
+    /// after every [`Next::next`] to turn that case into an explicit error
+    /// instead of a silent wrong answer; callers driving the model directly
+    /// should do the same.
+    ///
+    /// **State labels are `{1, 2}`, not `{0, 1}`** at the plugin/FFI boundary —
+    /// `0` is reserved for "no regime yet" (`MarketRegime::Steady`), Bull maps to
+    /// `1`, Bear to `2`. See `hmm_bull_bear` (firequant-py) and `MarketRegime`.
+    pub fn bull_bear() -> Self {
+        Self::new(
+            vec![
+                vec![0.95, 0.05], // Bull -> Bull, Bull -> Bear
+                vec![0.10, 0.90], // Bear -> Bull, Bear -> Bear
+            ],
+            vec![0.001, -0.002], // Daily returns: 0.1% for Bull, -0.2% for Bear
+            vec![0.01, 0.02],    // Volatility: 1% for Bull, 2% for Bear
+            vec![0.5, 0.5],
+        )
+    }
+
+    /// Calculate Gaussian PDF: P(x | mu, sigma)
+    fn gaussian_pdf(x: f64, mu: f64, sigma: f64) -> f64 {
+        let variance = sigma * sigma;
+        let denom = (2.0 * std::f64::consts::PI * variance).sqrt();
+        let exponent = -((x - mu).powi(2)) / (2.0 * variance);
+        exponent.exp() / denom
+    }
+
+    /// Returns `true` when the most recent [`Next::next`] update produced a
+    /// `-inf` log-likelihood for *every* state, i.e. `gaussian_pdf` underflowed to
+    /// `0.0` for all states. This is the degenerate-input signature described on
+    /// [`Self::bull_bear`]: it means the observation is off the scale the
+    /// emission parameters were fit for (classically, raw price fed where daily
+    /// returns were expected), and `best_state` would otherwise silently stick at
+    /// index `0` forever. Callers that need to fail loudly instead of emitting a
+    /// constant regime should check this after every `next()` call.
+    pub fn is_degenerate(&self) -> bool {
+        self.initialized
+            && self
+                .last_delta
+                .iter()
+                .all(|d| d.is_infinite() && d.is_sign_negative())
+    }
+
+    /// Normalized state probabilities from Viterbi log-deltas (for soft regime features).
+    pub fn state_probabilities(&self) -> Vec<f64> {
+        if !self.initialized {
+            return self.pi.clone();
+        }
+        let max_log = self
+            .last_delta
+            .iter()
+            .cloned()
+            .fold(f64::NEG_INFINITY, f64::max);
+        let mut probs: Vec<f64> = self
+            .last_delta
+            .iter()
+            .map(|&d| (d - max_log).exp())
+            .collect();
+        let sum: f64 = probs.iter().sum();
+        if sum > 0.0 {
+            for p in &mut probs {
+                *p /= sum;
+            }
+        }
+        probs
+    }
+}
+
+impl Next<f64> for HMM {
+    type Output = MarketRegime;
+
+    fn next(&mut self, x: f64) -> Self::Output {
+        let mut next_delta = vec![0.0; self.n_states];
+        let mut best_state = 0;
+        let mut max_prob = -f64::INFINITY;
+
+        if !self.initialized {
+            for i in 0..self.n_states {
+                let emission = Self::gaussian_pdf(x, self.means[i], self.stds[i]);
+                next_delta[i] = (self.pi[i] * emission).ln();
+                if next_delta[i] > max_prob {
+                    max_prob = next_delta[i];
+                    best_state = i;
+                }
+            }
+            self.initialized = true;
+        } else {
+            for j in 0..self.n_states {
+                let mut max_prev = -f64::INFINITY;
+                for i in 0..self.n_states {
+                    // delta_j(t) = max_i [ delta_i(t-1) + ln(A_ij) ] + ln(P(x|j))
+                    let prob = self.last_delta[i] + self.a[i][j].ln();
+                    if prob > max_prev {
+                        max_prev = prob;
+                    }
+                }
+                let emission = Self::gaussian_pdf(x, self.means[j], self.stds[j]);
+                next_delta[j] = max_prev + emission.ln();
+
+                if next_delta[j] > max_prob {
+                    max_prob = next_delta[j];
+                    best_state = j;
+                }
+            }
+        }
+
+        self.last_delta = next_delta;
+
+        match best_state {
+            0 => MarketRegime::Bull,
+            1 => MarketRegime::Bear,
+            _ => MarketRegime::Cluster(best_state as u8),
+        }
+    }
+}

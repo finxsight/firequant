@@ -8,9 +8,15 @@ description.workspace = true
 repository.workspace = true
 readme = "../README.md"
 
+[features]
+default = ["polars"]
+polars = ["dep:firequant-polars"]
+
 [dependencies]
 firequant-core = { workspace = true }
+firequant-backtest = { workspace = true }
 firequant-exec = { workspace = true }
+firequant-polars = { workspace = true, optional = true }
 chrono = { workspace = true }
 
 [[example]]

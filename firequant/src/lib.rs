@@ -1,7 +1,10 @@
-//! firequant — lean Rust quant execution and streaming primitives.
+//! firequant — FIRE quant toolkit (indicators, backtest, optional Polars).
 //!
-//! Re-exports the workspace crates. See `firequant-exec` for order simulation and
-//! `firequant-core` for the `Next<T>` indicator contract.
+//! Adapted from [QuantWave](https://github.com/lavs9/quantwave); Rust-only, no Python/WASM.
 
 pub use firequant_core as core;
+pub use firequant_backtest as backtest;
 pub use firequant_exec as exec;
+
+#[cfg(feature = "polars")]
+pub use firequant_polars as polars;

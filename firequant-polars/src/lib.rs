@@ -1,0 +1,5117 @@
+//! # firequant-polars
+//!
+//! Polars integration for [QuantWave](https://lavs9.github.io/quantwave/): the
+//! [`QuantWaveExt::ta()`](QuantWaveExt::ta) namespace on [`LazyFrame`] for **218**
+//! vectorized indicators, plus [`bt`](bt) for backtest helpers.
+//!
+//! ## Quick start
+//!
+//! ```rust,no_run
+//! use polars::prelude::*;
+//! use firequant_polars::QuantWaveExt;
+//!
+//! # fn demo(df: LazyFrame) -> LazyFrame {
+//! df.ta().rsi("close", 14)
+//! # }
+//! ```
+//!
+//! Under the hood, expression plugins call the same `firequant-core` math as
+//! streaming `Next<T>` structs — see [parity guide](https://lavs9.github.io/quantwave/guides/rust/next-trait/).
+//!
+//! User guides: <https://lavs9.github.io/quantwave/guides/rust/crate-map/>
+//! Full API: <https://docs.rs/firequant-polars>
+
+use polars::prelude::*;
+use firequant_core::traits::Next;
+use firequant_core::*;
+
+pub mod bt;
+pub mod features; // implements .ta.features.hurst / cyber_cycle / griffiths_dominant_cycle / regime_features (see features.rs)
+
+pub mod prelude {
+    pub use crate::bt::{BtNamespace, BtOptions, QuantWaveBtExt};
+    pub use crate::features::TaFeaturesNamespace;
+    pub use crate::{QuantWaveExt, QuantWaveNamespace};
+    pub use firequant_backtest::{SweepVariant, run_param_sweep, single_param_variants}; // .ta().features() sub-namespace (locked minimal surface for 4ps cross-epic deliverable)
+}
+
+pub trait QuantWaveExt {
+    fn ta(&self) -> QuantWaveNamespace<'_>;
+}
+
+pub struct QuantWaveNamespace<'a>(&'a LazyFrame);
+
+impl<'a> QuantWaveNamespace<'a> {
+    pub fn acos(self, name: &str) -> LazyFrame {
+        self.math_transform_1_in_1_out::<ACOS>(name, "acos")
+    }
+    pub fn asin(self, name: &str) -> LazyFrame {
+        self.math_transform_1_in_1_out::<ASIN>(name, "asin")
+    }
+    pub fn atan(self, name: &str) -> LazyFrame {
+        self.math_transform_1_in_1_out::<ATAN>(name, "atan")
+    }
+    pub fn ceil(self, name: &str) -> LazyFrame {
+        self.math_transform_1_in_1_out::<CEIL>(name, "ceil")
+    }
+    pub fn cos(self, name: &str) -> LazyFrame {
+        self.math_transform_1_in_1_out::<COS>(name, "cos")
+    }
+    pub fn cosh(self, name: &str) -> LazyFrame {
+        self.math_transform_1_in_1_out::<COSH>(name, "cosh")
+    }
+    pub fn exp(self, name: &str) -> LazyFrame {
+        self.math_transform_1_in_1_out::<EXP>(name, "exp")
+    }
+    pub fn floor(self, name: &str) -> LazyFrame {
+        self.math_transform_1_in_1_out::<FLOOR>(name, "floor")
+    }
+    pub fn ln(self, name: &str) -> LazyFrame {
+        self.math_transform_1_in_1_out::<LN>(name, "ln")
+    }
+    pub fn log10(self, name: &str) -> LazyFrame {
+        self.math_transform_1_in_1_out::<LOG10>(name, "log10")
+    }
+    pub fn sin(self, name: &str) -> LazyFrame {
+        self.math_transform_1_in_1_out::<SIN>(name, "sin")
+    }
+    pub fn sinh(self, name: &str) -> LazyFrame {
+        self.math_transform_1_in_1_out::<SINH>(name, "sinh")
+    }
+    pub fn sqrt(self, name: &str) -> LazyFrame {
+        self.math_transform_1_in_1_out::<SQRT>(name, "sqrt")
+    }
+    pub fn tan(self, name: &str) -> LazyFrame {
+        self.math_transform_1_in_1_out::<TAN>(name, "tan")
+    }
+    pub fn tanh(self, name: &str) -> LazyFrame {
+        self.math_transform_1_in_1_out::<TANH>(name, "tanh")
+    }
+
+    pub fn add(self, in1: &str, in2: &str) -> LazyFrame {
+        self.math_operator_2_in_1_out::<ADD>(in1, in2, "add")
+    }
+    pub fn sub(self, in1: &str, in2: &str) -> LazyFrame {
+        self.math_operator_2_in_1_out::<SUB>(in1, in2, "sub")
+    }
+    pub fn mult(self, in1: &str, in2: &str) -> LazyFrame {
+        self.math_operator_2_in_1_out::<MULT>(in1, in2, "mult")
+    }
+    pub fn div(self, in1: &str, in2: &str) -> LazyFrame {
+        self.math_operator_2_in_1_out::<DIV>(in1, in2, "div")
+    }
+
+    pub fn max(self, name: &str, period: usize) -> LazyFrame {
+        self.math_operator_1_in_1_out_period::<MAX>(name, period, "max")
+    }
+    pub fn maxindex(self, name: &str, period: usize) -> LazyFrame {
+        self.math_operator_1_in_1_out_period::<MAXINDEX>(name, period, "maxindex")
+    }
+    pub fn min(self, name: &str, period: usize) -> LazyFrame {
+        self.math_operator_1_in_1_out_period::<MIN>(name, period, "min")
+    }
+    pub fn minindex(self, name: &str, period: usize) -> LazyFrame {
+        self.math_operator_1_in_1_out_period::<MININDEX>(name, period, "minindex")
+    }
+    pub fn sum(self, name: &str, period: usize) -> LazyFrame {
+        self.math_operator_1_in_1_out_period::<SUM>(name, period, "sum")
+    }
+
+    pub fn sma(self, name: &str, period: usize) -> LazyFrame {
+        self.math_operator_1_in_1_out_period::<SMA>(name, period, "sma")
+    }
+    pub fn ema(self, name: &str, period: usize) -> LazyFrame {
+        self.math_operator_1_in_1_out_period::<EMA>(name, period, "ema")
+    }
+    pub fn wma(self, name: &str, period: usize) -> LazyFrame {
+        self.math_operator_1_in_1_out_period::<WMA>(name, period, "wma")
+    }
+    pub fn dema(self, name: &str, period: usize) -> LazyFrame {
+        self.math_operator_1_in_1_out_period::<DEMA>(name, period, "dema")
+    }
+    pub fn trima(self, name: &str, period: usize) -> LazyFrame {
+        self.math_operator_1_in_1_out_period::<TRIMA>(name, period, "trima")
+    }
+    pub fn kama(self, name: &str, period: usize) -> LazyFrame {
+        self.math_operator_1_in_1_out_period::<KAMA>(name, period, "kama")
+    }
+    pub fn midpoint(self, name: &str, period: usize) -> LazyFrame {
+        self.math_operator_1_in_1_out_period::<MIDPOINT>(name, period, "midpoint")
+    }
+    pub fn ht_trendline(self, name: &str) -> LazyFrame {
+        self.math_transform_1_in_1_out::<HT_TRENDLINE>(name, "ht_trendline")
+    }
+    pub fn midprice(self, high: &str, low: &str, period: usize) -> LazyFrame {
+        self.math_operator_2_in_1_out_period::<MIDPRICE>(high, low, period, "midprice")
+    }
+
+    pub fn rsi(self, name: &str, period: usize) -> LazyFrame {
+        self.math_operator_1_in_1_out_period::<RSI>(name, period, "rsi")
+    }
+    pub fn mom(self, name: &str, period: usize) -> LazyFrame {
+        self.math_operator_1_in_1_out_period::<MOM>(name, period, "mom")
+    }
+    pub fn roc(self, name: &str, period: usize) -> LazyFrame {
+        self.math_operator_1_in_1_out_period::<ROC>(name, period, "roc")
+    }
+    pub fn rocp(self, name: &str, period: usize) -> LazyFrame {
+        self.math_operator_1_in_1_out_period::<ROCP>(name, period, "rocp")
+    }
+    pub fn rocr(self, name: &str, period: usize) -> LazyFrame {
+        self.math_operator_1_in_1_out_period::<ROCR>(name, period, "rocr")
+    }
+    pub fn rocr100(self, name: &str, period: usize) -> LazyFrame {
+        self.math_operator_1_in_1_out_period::<ROCR100>(name, period, "rocr100")
+    }
+    pub fn trix(self, name: &str, period: usize) -> LazyFrame {
+        self.math_operator_1_in_1_out_period::<TRIX>(name, period, "trix")
+    }
+    pub fn cmo(self, name: &str, period: usize) -> LazyFrame {
+        self.math_operator_1_in_1_out_period::<CMO>(name, period, "cmo")
+    }
+
+    /// Prado fractional differentiation (`d` order, weight truncation `threshold`).
+    pub fn frac_diff(self, name: &str, d: f64, threshold: f64) -> LazyFrame {
+        let name = name.to_string();
+        self.0.clone().with_columns([col(&name)
+            .map(
+                move |s| {
+                    let ca = s.f64()?;
+                    let mut indicator = FracDiff::new(d, threshold);
+                    let mut values = Vec::with_capacity(s.len());
+                    for i in 0..s.len() {
+                        let val = ca.get(i).unwrap_or(f64::NAN);
+                        values.push(indicator.next(val));
+                    }
+                    Ok(Some(Column::from(Series::new("frac_diff".into(), values))))
+                },
+                GetOutput::from_type(DataType::Float64),
+            )
+            .alias("frac_diff")])
+    }
+
+    pub fn adx(self, high: &str, low: &str, close: &str, period: usize) -> LazyFrame {
+        self.ta_3_in_1_out_period::<ADX>(high, low, close, period, "adx")
+    }
+    pub fn adxr(self, high: &str, low: &str, close: &str, period: usize) -> LazyFrame {
+        self.ta_3_in_1_out_period::<ADXR>(high, low, close, period, "adxr")
+    }
+    pub fn cci(self, high: &str, low: &str, close: &str, period: usize) -> LazyFrame {
+        self.ta_3_in_1_out_period::<CCI>(high, low, close, period, "cci")
+    }
+    pub fn willr(self, high: &str, low: &str, close: &str, period: usize) -> LazyFrame {
+        self.ta_3_in_1_out_period::<WILLR>(high, low, close, period, "willr")
+    }
+    pub fn dx(self, high: &str, low: &str, close: &str, period: usize) -> LazyFrame {
+        self.ta_3_in_1_out_period::<DX>(high, low, close, period, "dx")
+    }
+    pub fn plus_di(self, high: &str, low: &str, close: &str, period: usize) -> LazyFrame {
+        self.ta_3_in_1_out_period::<PLUS_DI>(high, low, close, period, "plus_di")
+    }
+    pub fn minus_di(self, high: &str, low: &str, close: &str, period: usize) -> LazyFrame {
+        self.ta_3_in_1_out_period::<MINUS_DI>(high, low, close, period, "minus_di")
+    }
+
+    pub fn ta_atr(self, high: &str, low: &str, close: &str, period: usize) -> LazyFrame {
+        self.ta_3_in_1_out_period::<TaATR>(high, low, close, period, "ta_atr")
+    }
+    pub fn ta_natr(self, high: &str, low: &str, close: &str, period: usize) -> LazyFrame {
+        self.ta_3_in_1_out_period::<TaNATR>(high, low, close, period, "ta_natr")
+    }
+    pub fn ta_trange(self, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_3_in_1_out_default::<TaTRANGE>(high, low, close, "ta_trange")
+    }
+
+    pub fn obv(self, close: &str, volume: &str) -> LazyFrame {
+        self.math_operator_2_in_1_out::<OBV>(close, volume, "obv")
+    }
+    pub fn ad(self, high: &str, low: &str, close: &str, volume: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<AD>(high, low, close, volume, "ad")
+    }
+    pub fn adosc(
+        self,
+        high: &str,
+        low: &str,
+        close: &str,
+        volume: &str,
+        fast: usize,
+        slow: usize,
+    ) -> LazyFrame {
+        let high_str = high.to_string();
+        let low_str = low.to_string();
+        let close_str = close.to_string();
+        let volume_str = volume.to_string();
+        self.0.clone().with_columns([as_struct(vec![
+            col(&high_str),
+            col(&low_str),
+            col(&close_str),
+            col(&volume_str),
+        ])
+        .map(
+            move |s| {
+                let ca = s.struct_()?;
+                let s_h = ca.field_by_name(&high_str)?;
+                let s_l = ca.field_by_name(&low_str)?;
+                let s_c = ca.field_by_name(&close_str)?;
+                let s_v = ca.field_by_name(&volume_str)?;
+
+                let high = s_h.f64()?;
+                let low = s_l.f64()?;
+                let close = s_c.f64()?;
+                let volume = s_v.f64()?;
+
+                let mut indicator = ADOSC::new(fast, slow);
+                let mut values = Vec::with_capacity(s.len());
+
+                for i in 0..s.len() {
+                    let h = high.get(i).unwrap_or(f64::NAN);
+                    let l = low.get(i).unwrap_or(f64::NAN);
+                    let c = close.get(i).unwrap_or(f64::NAN);
+                    let v = volume.get(i).unwrap_or(f64::NAN);
+                    values.push(indicator.next((h, l, c, v)));
+                }
+
+                Ok(Some(Column::from(Series::new("adosc".into(), values))))
+            },
+            GetOutput::from_type(DataType::Float64),
+        )
+        .alias("adosc")])
+    }
+
+    pub fn aroon(self, high: &str, low: &str, period: usize) -> LazyFrame {
+        let high_str = high.to_string();
+        let low_str = low.to_string();
+        self.0
+            .clone()
+            .with_columns([as_struct(vec![col(&high_str), col(&low_str)])
+                .map(
+                    move |s| {
+                        let ca = s.struct_()?;
+                        let s_h = ca.field_by_name(&high_str)?;
+                        let s_l = ca.field_by_name(&low_str)?;
+                        let high = s_h.f64()?;
+                        let low = s_l.f64()?;
+
+                        let mut indicator = AROON::new(period);
+                        let mut up_vals = Vec::with_capacity(s.len());
+                        let mut down_vals = Vec::with_capacity(s.len());
+
+                        for i in 0..s.len() {
+                            let h = high.get(i).unwrap_or(f64::NAN);
+                            let l = low.get(i).unwrap_or(f64::NAN);
+                            let (up, down) = indicator.next((h, l));
+                            up_vals.push(up);
+                            down_vals.push(down);
+                        }
+
+                        let s_up = Series::new("aroon_up".into(), up_vals);
+                        let s_down = Series::new("aroon_down".into(), down_vals);
+                        let struct_series = StructChunked::from_series(
+                            "aroon_result".into(),
+                            s.len(),
+                            [s_up, s_down].iter(),
+                        )?;
+                        Ok(Some(Column::from(struct_series.into_series())))
+                    },
+                    GetOutput::from_type(DataType::Struct(vec![
+                        Field::new("aroon_up".into(), DataType::Float64),
+                        Field::new("aroon_down".into(), DataType::Float64),
+                    ])),
+                )
+                .alias("aroon")])
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn stoch(
+        self,
+        high: &str,
+        low: &str,
+        close: &str,
+        fastk: usize,
+        slowk: usize,
+        slowk_matype: MaType,
+        slowd: usize,
+        slowd_matype: MaType,
+    ) -> LazyFrame {
+        let high_str = high.to_string();
+        let low_str = low.to_string();
+        let close_str = close.to_string();
+        self.0.clone().with_columns([as_struct(vec![
+            col(&high_str),
+            col(&low_str),
+            col(&close_str),
+        ])
+        .map(
+            move |s| {
+                let ca = s.struct_()?;
+                let s_h = ca.field_by_name(&high_str)?;
+                let s_l = ca.field_by_name(&low_str)?;
+                let s_c = ca.field_by_name(&close_str)?;
+                let high = s_h.f64()?;
+                let low = s_l.f64()?;
+                let close = s_c.f64()?;
+
+                let mut indicator = STOCH::new(fastk, slowk, slowk_matype, slowd, slowd_matype);
+                let mut k_vals = Vec::with_capacity(s.len());
+                let mut d_vals = Vec::with_capacity(s.len());
+
+                for i in 0..s.len() {
+                    let h = high.get(i).unwrap_or(f64::NAN);
+                    let l = low.get(i).unwrap_or(f64::NAN);
+                    let c = close.get(i).unwrap_or(f64::NAN);
+                    let (k, d) = indicator.next((h, l, c));
+                    k_vals.push(k);
+                    d_vals.push(d);
+                }
+
+                let s_k = Series::new("slowk".into(), k_vals);
+                let s_d = Series::new("slowd".into(), d_vals);
+                let struct_series =
+                    StructChunked::from_series("stoch_result".into(), s.len(), [s_k, s_d].iter())?;
+                Ok(Some(Column::from(struct_series.into_series())))
+            },
+            GetOutput::from_type(DataType::Struct(vec![
+                Field::new("slowk".into(), DataType::Float64),
+                Field::new("slowd".into(), DataType::Float64),
+            ])),
+        )
+        .alias("stoch")])
+    }
+
+    pub fn avgprice(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<AVGPRICE>(open, high, low, close, "avgprice")
+    }
+    pub fn medprice(self, high: &str, low: &str) -> LazyFrame {
+        self.math_operator_2_in_1_out::<MEDPRICE>(high, low, "medprice")
+    }
+    pub fn typprice(self, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_3_in_1_out_default::<TYPPRICE>(high, low, close, "typprice")
+    }
+    pub fn wclprice(self, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_3_in_1_out_default::<WCLPRICE>(high, low, close, "wclprice")
+    }
+
+    pub fn ht_dcperiod(self, name: &str) -> LazyFrame {
+        self.math_transform_1_in_1_out::<HT_DCPERIOD>(name, "ht_dcperiod")
+    }
+    pub fn ht_dcphase(self, name: &str) -> LazyFrame {
+        self.math_transform_1_in_1_out::<HT_DCPHASE>(name, "ht_dcphase")
+    }
+    pub fn ht_trendmode(self, name: &str) -> LazyFrame {
+        self.math_transform_1_in_1_out::<HT_TRENDMODE>(name, "ht_trendmode")
+    }
+
+    pub fn ta_stddev(self, name: &str, period: usize, nbdev: f64) -> LazyFrame {
+        let name_str = name.to_string();
+        self.0.clone().with_columns([col(&name_str)
+            .map(
+                move |s| {
+                    let ca = s.f64()?;
+                    let mut indicator = TaSTDDEV::new(period, nbdev);
+                    let mut values = Vec::with_capacity(s.len());
+                    for i in 0..s.len() {
+                        let val = ca.get(i).unwrap_or(f64::NAN);
+                        values.push(indicator.next(val));
+                    }
+                    Ok(Some(Column::from(Series::new("ta_stddev".into(), values))))
+                },
+                GetOutput::from_type(DataType::Float64),
+            )
+            .alias("ta_stddev")])
+    }
+    pub fn ta_var(self, name: &str, period: usize, nbdev: f64) -> LazyFrame {
+        let name_str = name.to_string();
+        self.0.clone().with_columns([col(&name_str)
+            .map(
+                move |s| {
+                    let ca = s.f64()?;
+                    let mut indicator = TaVAR::new(period, nbdev);
+                    let mut values = Vec::with_capacity(s.len());
+                    for i in 0..s.len() {
+                        let val = ca.get(i).unwrap_or(f64::NAN);
+                        values.push(indicator.next(val));
+                    }
+                    Ok(Some(Column::from(Series::new("ta_var".into(), values))))
+                },
+                GetOutput::from_type(DataType::Float64),
+            )
+            .alias("ta_var")])
+    }
+    pub fn ta_beta(self, in1: &str, in2: &str, period: usize) -> LazyFrame {
+        self.math_operator_2_in_1_out_period::<TaBETA>(in1, in2, period, "ta_beta")
+    }
+    pub fn ta_correl(self, in1: &str, in2: &str, period: usize) -> LazyFrame {
+        self.math_operator_2_in_1_out_period::<TaCORREL>(in1, in2, period, "ta_correl")
+    }
+    pub fn ta_linearreg(self, name: &str, period: usize) -> LazyFrame {
+        self.math_operator_1_in_1_out_period::<TaLINEARREG>(name, period, "ta_linearreg")
+    }
+    pub fn ta_linearreg_slope(self, name: &str, period: usize) -> LazyFrame {
+        self.math_operator_1_in_1_out_period::<TaLINEARREG_SLOPE>(
+            name,
+            period,
+            "ta_linearreg_slope",
+        )
+    }
+    pub fn ta_linearreg_intercept(self, name: &str, period: usize) -> LazyFrame {
+        self.math_operator_1_in_1_out_period::<TaLINEARREG_INTERCEPT>(
+            name,
+            period,
+            "ta_linearreg_intercept",
+        )
+    }
+    pub fn ta_linearreg_angle(self, name: &str, period: usize) -> LazyFrame {
+        self.math_operator_1_in_1_out_period::<TaLINEARREG_ANGLE>(
+            name,
+            period,
+            "ta_linearreg_angle",
+        )
+    }
+    pub fn ta_tsf(self, name: &str, period: usize) -> LazyFrame {
+        self.math_operator_1_in_1_out_period::<TaTSF>(name, period, "ta_tsf")
+    }
+
+    pub fn cdl_2crows(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDL2CROWS>(open, high, low, close, "cdl_2crows")
+    }
+    pub fn cdl_3blackcrows(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDL3BLACKCROWS>(open, high, low, close, "cdl_3blackcrows")
+    }
+    pub fn cdl_3inside(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDL3INSIDE>(open, high, low, close, "cdl_3inside")
+    }
+    pub fn cdl_3linestrike(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDL3LINESTRIKE>(open, high, low, close, "cdl_3linestrike")
+    }
+    pub fn cdl_3outside(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDL3OUTSIDE>(open, high, low, close, "cdl_3outside")
+    }
+    pub fn cdl_3starsinsouth(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDL3STARSINSOUTH>(open, high, low, close, "cdl_3starsinsouth")
+    }
+    pub fn cdl_3whitesoldiers(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDL3WHITESOLDIERS>(
+            open,
+            high,
+            low,
+            close,
+            "cdl_3whitesoldiers",
+        )
+    }
+    pub fn cdl_abandonedbaby(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLABANDONEDBABY>(open, high, low, close, "cdl_abandonedbaby")
+    }
+    pub fn cdl_advanceblock(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLADVANCEBLOCK>(open, high, low, close, "cdl_advanceblock")
+    }
+    pub fn cdl_belthold(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLBELTHOLD>(open, high, low, close, "cdl_belthold")
+    }
+    pub fn cdl_breakaway(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLBREAKAWAY>(open, high, low, close, "cdl_breakaway")
+    }
+    pub fn cdl_closingmarubozu(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLCLOSINGMARUBOZU>(
+            open,
+            high,
+            low,
+            close,
+            "cdl_closingmarubozu",
+        )
+    }
+    pub fn cdl_concealbabyswall(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLCONCEALBABYSWALL>(
+            open,
+            high,
+            low,
+            close,
+            "cdl_concealbabyswall",
+        )
+    }
+    pub fn cdl_counterattack(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLCOUNTERATTACK>(open, high, low, close, "cdl_counterattack")
+    }
+    pub fn cdl_darkcloudcover(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLDARKCLOUDCOVER>(
+            open,
+            high,
+            low,
+            close,
+            "cdl_darkcloudcover",
+        )
+    }
+    pub fn cdl_doji(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLDOJI>(open, high, low, close, "cdl_doji")
+    }
+    pub fn cdl_dojistar(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLDOJISTAR>(open, high, low, close, "cdl_dojistar")
+    }
+    pub fn cdl_dragonflydoji(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLDRAGONFLYDOJI>(open, high, low, close, "cdl_dragonflydoji")
+    }
+    pub fn cdl_engulfing(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLENGULFING>(open, high, low, close, "cdl_engulfing")
+    }
+    pub fn cdl_eveningdojistar(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLEVENINGDOJISTAR>(
+            open,
+            high,
+            low,
+            close,
+            "cdl_eveningdojistar",
+        )
+    }
+    pub fn cdl_eveningstar(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLEVENINGSTAR>(open, high, low, close, "cdl_eveningstar")
+    }
+    pub fn cdl_gapsidesidewhite(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLGAPSIDESIDEWHITE>(
+            open,
+            high,
+            low,
+            close,
+            "cdl_gapsidesidewhite",
+        )
+    }
+    pub fn cdl_gravestonedoji(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLGRAVESTONEDOJI>(
+            open,
+            high,
+            low,
+            close,
+            "cdl_gravestonedoji",
+        )
+    }
+    pub fn cdl_hammer(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLHAMMER>(open, high, low, close, "cdl_hammer")
+    }
+    pub fn cdl_hangingman(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLHANGINGMAN>(open, high, low, close, "cdl_hangingman")
+    }
+    pub fn cdl_harami(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLHARAMI>(open, high, low, close, "cdl_harami")
+    }
+    pub fn cdl_haramicross(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLHARAMICROSS>(open, high, low, close, "cdl_haramicross")
+    }
+    pub fn cdl_highwave(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLHIGHWAVE>(open, high, low, close, "cdl_highwave")
+    }
+    pub fn cdl_hikkake(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLHIKKAKE>(open, high, low, close, "cdl_hikkake")
+    }
+    pub fn cdl_hikkakemod(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLHIKKAKEMOD>(open, high, low, close, "cdl_hikkakemod")
+    }
+    pub fn cdl_homingpigeon(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLHOMINGPIGEON>(open, high, low, close, "cdl_homingpigeon")
+    }
+    pub fn cdl_identical3crows(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLIDENTICAL3CROWS>(
+            open,
+            high,
+            low,
+            close,
+            "cdl_identical3crows",
+        )
+    }
+    pub fn cdl_inneck(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLINNECK>(open, high, low, close, "cdl_inneck")
+    }
+    pub fn cdl_invertedhammer(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLINVERTEDHAMMER>(
+            open,
+            high,
+            low,
+            close,
+            "cdl_invertedhammer",
+        )
+    }
+    pub fn cdl_kicking(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLKICKING>(open, high, low, close, "cdl_kicking")
+    }
+    pub fn cdl_kickingbylength(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLKICKINGBYLENGTH>(
+            open,
+            high,
+            low,
+            close,
+            "cdl_kickingbylength",
+        )
+    }
+    pub fn cdl_ladderbottom(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLLADDERBOTTOM>(open, high, low, close, "cdl_ladderbottom")
+    }
+    pub fn cdl_longleggeddoji(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLLONGLEGGEDDOJI>(
+            open,
+            high,
+            low,
+            close,
+            "cdl_longleggeddoji",
+        )
+    }
+    pub fn cdl_longline(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLLONGLINE>(open, high, low, close, "cdl_longline")
+    }
+    pub fn cdl_marubozu(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLMARUBOZU>(open, high, low, close, "cdl_marubozu")
+    }
+    pub fn cdl_matchinglow(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLMATCHINGLOW>(open, high, low, close, "cdl_matchinglow")
+    }
+    pub fn cdl_mathold(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLMATHOLD>(open, high, low, close, "cdl_mathold")
+    }
+    pub fn cdl_morningdojistar(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLMORNINGDOJISTAR>(
+            open,
+            high,
+            low,
+            close,
+            "cdl_morningdojistar",
+        )
+    }
+    pub fn cdl_morningstar(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLMORNINGSTAR>(open, high, low, close, "cdl_morningstar")
+    }
+    pub fn cdl_onneck(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLONNECK>(open, high, low, close, "cdl_onneck")
+    }
+    pub fn cdl_piercing(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLPIERCING>(open, high, low, close, "cdl_piercing")
+    }
+    pub fn cdl_rickshawman(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLRICKSHAWMAN>(open, high, low, close, "cdl_rickshawman")
+    }
+    pub fn cdl_risefall3methods(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLRISEFALL3METHODS>(
+            open,
+            high,
+            low,
+            close,
+            "cdl_risefall3methods",
+        )
+    }
+    pub fn cdl_separatinglines(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLSEPARATINGLINES>(
+            open,
+            high,
+            low,
+            close,
+            "cdl_separatinglines",
+        )
+    }
+    pub fn cdl_shootingstar(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLSHOOTINGSTAR>(open, high, low, close, "cdl_shootingstar")
+    }
+    pub fn cdl_shortline(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLSHORTLINE>(open, high, low, close, "cdl_shortline")
+    }
+    pub fn cdl_spinningtop(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLSPINNINGTOP>(open, high, low, close, "cdl_spinningtop")
+    }
+    pub fn cdl_stalledpattern(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLSTALLEDPATTERN>(
+            open,
+            high,
+            low,
+            close,
+            "cdl_stalledpattern",
+        )
+    }
+    pub fn cdl_sticksandwich(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLSTICKSANDWICH>(open, high, low, close, "cdl_sticksandwich")
+    }
+    pub fn cdl_takuri(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLTAKURI>(open, high, low, close, "cdl_takuri")
+    }
+    pub fn cdl_tasukigap(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLTASUKIGAP>(open, high, low, close, "cdl_tasukigap")
+    }
+    pub fn cdl_thrusting(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLTHRUSTING>(open, high, low, close, "cdl_thrusting")
+    }
+    pub fn cdl_tristar(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLTRISTAR>(open, high, low, close, "cdl_tristar")
+    }
+    pub fn cdl_unique3river(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLUNIQUE3RIVER>(open, high, low, close, "cdl_unique3river")
+    }
+    pub fn cdl_upsidegap2crows(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLUPSIDEGAP2CROWS>(
+            open,
+            high,
+            low,
+            close,
+            "cdl_upsidegap2crows",
+        )
+    }
+    pub fn cdl_xsidegap3methods(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<CDLXSIDEGAP3METHODS>(
+            open,
+            high,
+            low,
+            close,
+            "cdl_xsidegap3methods",
+        )
+    }
+
+    pub fn macd(self, name: &str, fast: usize, slow: usize, signal: usize) -> LazyFrame {
+        let name_str = name.to_string();
+        self.0.clone().with_columns([col(&name_str)
+            .map(
+                move |s| {
+                    let ca = s.f64()?;
+                    let mut indicator = MACD::new(fast, slow, signal);
+                    let mut macd_vals = Vec::with_capacity(s.len());
+                    let mut signal_vals = Vec::with_capacity(s.len());
+                    let mut hist_vals = Vec::with_capacity(s.len());
+
+                    for i in 0..s.len() {
+                        let val = ca.get(i).unwrap_or(f64::NAN);
+                        let (m, s_val, h) = indicator.next(val);
+                        macd_vals.push(m);
+                        signal_vals.push(s_val);
+                        hist_vals.push(h);
+                    }
+
+                    let s_macd = Series::new("macd".into(), macd_vals);
+                    let s_signal = Series::new("macd_signal".into(), signal_vals);
+                    let s_hist = Series::new("macd_hist".into(), hist_vals);
+
+                    let struct_series = StructChunked::from_series(
+                        "macd_result".into(),
+                        s.len(),
+                        [s_macd, s_signal, s_hist].iter(),
+                    )?;
+                    Ok(Some(Column::from(struct_series.into_series())))
+                },
+                GetOutput::from_type(DataType::Struct(vec![
+                    Field::new("macd".into(), DataType::Float64),
+                    Field::new("macd_signal".into(), DataType::Float64),
+                    Field::new("macd_hist".into(), DataType::Float64),
+                ])),
+            )
+            .alias("macd")])
+    }
+
+    pub fn bbands(
+        self,
+        name: &str,
+        period: usize,
+        nbdevup: f64,
+        nbdevdn: f64,
+        matype: MaType,
+    ) -> LazyFrame {
+        let name_str = name.to_string();
+        self.0.clone().with_columns([col(&name_str)
+            .map(
+                move |s| {
+                    let ca = s.f64()?;
+                    let mut indicator = BBANDS::new(period, nbdevup, nbdevdn, matype);
+                    let mut upper_vals = Vec::with_capacity(s.len());
+                    let mut middle_vals = Vec::with_capacity(s.len());
+                    let mut lower_vals = Vec::with_capacity(s.len());
+
+                    for i in 0..s.len() {
+                        let val = ca.get(i).unwrap_or(f64::NAN);
+                        let (u, m, l) = indicator.next(val);
+                        upper_vals.push(u);
+                        middle_vals.push(m);
+                        lower_vals.push(l);
+                    }
+
+                    let s_upper = Series::new("upper".into(), upper_vals);
+                    let s_middle = Series::new("middle".into(), middle_vals);
+                    let s_lower = Series::new("lower".into(), lower_vals);
+
+                    let struct_series = StructChunked::from_series(
+                        "bbands_result".into(),
+                        s.len(),
+                        [s_upper, s_middle, s_lower].iter(),
+                    )?;
+                    Ok(Some(Column::from(struct_series.into_series())))
+                },
+                GetOutput::from_type(DataType::Struct(vec![
+                    Field::new("upper".into(), DataType::Float64),
+                    Field::new("middle".into(), DataType::Float64),
+                    Field::new("lower".into(), DataType::Float64),
+                ])),
+            )
+            .alias("bbands")])
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn macdext(
+        self,
+        name: &str,
+        fastperiod: usize,
+        fastmatype: MaType,
+        slowperiod: usize,
+        slowmatype: MaType,
+        signalperiod: usize,
+        signalmatype: MaType,
+    ) -> LazyFrame {
+        let name_str = name.to_string();
+        self.0.clone().with_columns([col(&name_str)
+            .map(
+                move |s| {
+                    let ca = s.f64()?;
+                    let mut indicator = MACDEXT::new(
+                        fastperiod,
+                        fastmatype,
+                        slowperiod,
+                        slowmatype,
+                        signalperiod,
+                        signalmatype,
+                    );
+                    let mut macd_vals = Vec::with_capacity(s.len());
+                    let mut signal_vals = Vec::with_capacity(s.len());
+                    let mut hist_vals = Vec::with_capacity(s.len());
+
+                    for i in 0..s.len() {
+                        let val = ca.get(i).unwrap_or(f64::NAN);
+                        let (m, s_val, h) = indicator.next(val);
+                        macd_vals.push(m);
+                        signal_vals.push(s_val);
+                        hist_vals.push(h);
+                    }
+
+                    let s_macd = Series::new("macd".into(), macd_vals);
+                    let s_signal = Series::new("macd_signal".into(), signal_vals);
+                    let s_hist = Series::new("macd_hist".into(), hist_vals);
+
+                    let struct_series = StructChunked::from_series(
+                        "macdext_result".into(),
+                        s.len(),
+                        [s_macd, s_signal, s_hist].iter(),
+                    )?;
+                    Ok(Some(Column::from(struct_series.into_series())))
+                },
+                GetOutput::from_type(DataType::Struct(vec![
+                    Field::new("macd".into(), DataType::Float64),
+                    Field::new("macd_signal".into(), DataType::Float64),
+                    Field::new("macd_hist".into(), DataType::Float64),
+                ])),
+            )
+            .alias("macdext")])
+    }
+
+    pub fn macdfix(self, name: &str, signalperiod: usize) -> LazyFrame {
+        let name_str = name.to_string();
+        self.0.clone().with_columns([col(&name_str)
+            .map(
+                move |s| {
+                    let ca = s.f64()?;
+                    let mut indicator = MACDFIX::new(signalperiod);
+                    let mut macd_vals = Vec::with_capacity(s.len());
+                    let mut signal_vals = Vec::with_capacity(s.len());
+                    let mut hist_vals = Vec::with_capacity(s.len());
+
+                    for i in 0..s.len() {
+                        let val = ca.get(i).unwrap_or(f64::NAN);
+                        let (m, s_val, h) = indicator.next(val);
+                        macd_vals.push(m);
+                        signal_vals.push(s_val);
+                        hist_vals.push(h);
+                    }
+
+                    let s_macd = Series::new("macd".into(), macd_vals);
+                    let s_signal = Series::new("macd_signal".into(), signal_vals);
+                    let s_hist = Series::new("macd_hist".into(), hist_vals);
+
+                    let struct_series = StructChunked::from_series(
+                        "macdfix_result".into(),
+                        s.len(),
+                        [s_macd, s_signal, s_hist].iter(),
+                    )?;
+                    Ok(Some(Column::from(struct_series.into_series())))
+                },
+                GetOutput::from_type(DataType::Struct(vec![
+                    Field::new("macd".into(), DataType::Float64),
+                    Field::new("macd_signal".into(), DataType::Float64),
+                    Field::new("macd_hist".into(), DataType::Float64),
+                ])),
+            )
+            .alias("macdfix")])
+    }
+
+    pub fn stochf(
+        self,
+        high: &str,
+        low: &str,
+        close: &str,
+        fastk_period: usize,
+        fastd_period: usize,
+        fastd_matype: MaType,
+    ) -> LazyFrame {
+        let high_str = high.to_string();
+        let low_str = low.to_string();
+        let close_str = close.to_string();
+        self.0.clone().with_columns([as_struct(vec![
+            col(&high_str),
+            col(&low_str),
+            col(&close_str),
+        ])
+        .map(
+            move |s| {
+                let ca = s.struct_()?;
+                let s_h = ca.field_by_name(&high_str)?;
+                let s_l = ca.field_by_name(&low_str)?;
+                let s_c = ca.field_by_name(&close_str)?;
+                let high = s_h.f64()?;
+                let low = s_l.f64()?;
+                let close = s_c.f64()?;
+
+                let mut indicator = STOCHF::new(fastk_period, fastd_period, fastd_matype);
+                let mut k_vals = Vec::with_capacity(s.len());
+                let mut d_vals = Vec::with_capacity(s.len());
+
+                for i in 0..s.len() {
+                    let h = high.get(i).unwrap_or(f64::NAN);
+                    let l = low.get(i).unwrap_or(f64::NAN);
+                    let c = close.get(i).unwrap_or(f64::NAN);
+                    let (k, d) = indicator.next((h, l, c));
+                    k_vals.push(k);
+                    d_vals.push(d);
+                }
+
+                let s_k = Series::new("fastk".into(), k_vals);
+                let s_d = Series::new("fastd".into(), d_vals);
+                let struct_series =
+                    StructChunked::from_series("stochf_result".into(), s.len(), [s_k, s_d].iter())?;
+                Ok(Some(Column::from(struct_series.into_series())))
+            },
+            GetOutput::from_type(DataType::Struct(vec![
+                Field::new("fastk".into(), DataType::Float64),
+                Field::new("fastd".into(), DataType::Float64),
+            ])),
+        )
+        .alias("stochf")])
+    }
+
+    pub fn stochrsi(
+        self,
+        name: &str,
+        timeperiod: usize,
+        fastk_period: usize,
+        fastd_period: usize,
+        fastd_matype: MaType,
+    ) -> LazyFrame {
+        let name_str = name.to_string();
+        self.0.clone().with_columns([col(&name_str)
+            .map(
+                move |s| {
+                    let ca = s.f64()?;
+                    let mut indicator =
+                        STOCHRSI::new(timeperiod, fastk_period, fastd_period, fastd_matype);
+                    let mut k_vals = Vec::with_capacity(s.len());
+                    let mut d_vals = Vec::with_capacity(s.len());
+
+                    for i in 0..s.len() {
+                        let val = ca.get(i).unwrap_or(f64::NAN);
+                        let (k, d) = indicator.next(val);
+                        k_vals.push(k);
+                        d_vals.push(d);
+                    }
+
+                    let s_k = Series::new("fastk".into(), k_vals);
+                    let s_d = Series::new("fastd".into(), d_vals);
+
+                    let struct_series = StructChunked::from_series(
+                        "stochrsi_result".into(),
+                        s.len(),
+                        [s_k, s_d].iter(),
+                    )?;
+                    Ok(Some(Column::from(struct_series.into_series())))
+                },
+                GetOutput::from_type(DataType::Struct(vec![
+                    Field::new("fastk".into(), DataType::Float64),
+                    Field::new("fastd".into(), DataType::Float64),
+                ])),
+            )
+            .alias("stochrsi")])
+    }
+
+    pub fn apo(
+        self,
+        name: &str,
+        fastperiod: usize,
+        slowperiod: usize,
+        matype: MaType,
+    ) -> LazyFrame {
+        let name_str = name.to_string();
+        self.0.clone().with_columns([col(&name_str)
+            .map(
+                move |s| {
+                    let ca = s.f64()?;
+                    let mut indicator = APO::new(fastperiod, slowperiod, matype);
+                    let mut values = Vec::with_capacity(s.len());
+                    for i in 0..s.len() {
+                        let val = ca.get(i).unwrap_or(f64::NAN);
+                        values.push(indicator.next(val));
+                    }
+                    Ok(Some(Column::from(Series::new("apo".into(), values))))
+                },
+                GetOutput::from_type(DataType::Float64),
+            )
+            .alias("apo")])
+    }
+
+    pub fn ppo(
+        self,
+        name: &str,
+        fastperiod: usize,
+        slowperiod: usize,
+        matype: MaType,
+    ) -> LazyFrame {
+        let name_str = name.to_string();
+        self.0.clone().with_columns([col(&name_str)
+            .map(
+                move |s| {
+                    let ca = s.f64()?;
+                    let mut indicator = PPO::new(fastperiod, slowperiod, matype);
+                    let mut values = Vec::with_capacity(s.len());
+                    for i in 0..s.len() {
+                        let val = ca.get(i).unwrap_or(f64::NAN);
+                        values.push(indicator.next(val));
+                    }
+                    Ok(Some(Column::from(Series::new("ppo".into(), values))))
+                },
+                GetOutput::from_type(DataType::Float64),
+            )
+            .alias("ppo")])
+    }
+
+    pub fn bop(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        self.ta_4_in_1_out_default::<BOP>(open, high, low, close, "bop")
+    }
+
+    pub fn aroonosc(self, high: &str, low: &str, period: usize) -> LazyFrame {
+        self.math_operator_2_in_1_out_period::<AROONOSC>(high, low, period, "aroonosc")
+    }
+
+    pub fn mfi(self, high: &str, low: &str, close: &str, volume: &str, period: usize) -> LazyFrame {
+        let high_str = high.to_string();
+        let low_str = low.to_string();
+        let close_str = close.to_string();
+        let volume_str = volume.to_string();
+        self.0.clone().with_columns([as_struct(vec![
+            col(&high_str),
+            col(&low_str),
+            col(&close_str),
+            col(&volume_str),
+        ])
+        .map(
+            move |s| {
+                let ca = s.struct_()?;
+                let s_h = ca.field_by_name(&high_str)?;
+                let s_l = ca.field_by_name(&low_str)?;
+                let s_c = ca.field_by_name(&close_str)?;
+                let s_v = ca.field_by_name(&volume_str)?;
+
+                let high = s_h.f64()?;
+                let low = s_l.f64()?;
+                let close = s_c.f64()?;
+                let volume = s_v.f64()?;
+
+                let mut indicator = MFI::new(period);
+                let mut values = Vec::with_capacity(s.len());
+
+                for i in 0..s.len() {
+                    let h = high.get(i).unwrap_or(f64::NAN);
+                    let l = low.get(i).unwrap_or(f64::NAN);
+                    let c = close.get(i).unwrap_or(f64::NAN);
+                    let v = volume.get(i).unwrap_or(f64::NAN);
+                    values.push(indicator.next((h, l, c, v)));
+                }
+
+                Ok(Some(Column::from(Series::new("mfi".into(), values))))
+            },
+            GetOutput::from_type(DataType::Float64),
+        )
+        .alias("mfi")])
+    }
+
+    pub fn ultosc(
+        self,
+        high: &str,
+        low: &str,
+        close: &str,
+        timeperiod1: usize,
+        timeperiod2: usize,
+        timeperiod3: usize,
+    ) -> LazyFrame {
+        let high_str = high.to_string();
+        let low_str = low.to_string();
+        let close_str = close.to_string();
+        self.0.clone().with_columns([as_struct(vec![
+            col(&high_str),
+            col(&low_str),
+            col(&close_str),
+        ])
+        .map(
+            move |s| {
+                let ca = s.struct_()?;
+                let s_h = ca.field_by_name(&high_str)?;
+                let s_l = ca.field_by_name(&low_str)?;
+                let s_c = ca.field_by_name(&close_str)?;
+                let high = s_h.f64()?;
+                let low = s_l.f64()?;
+                let close = s_c.f64()?;
+
+                let mut indicator = ULTOSC::new(timeperiod1, timeperiod2, timeperiod3);
+                let mut values = Vec::with_capacity(s.len());
+
+                for i in 0..s.len() {
+                    let h = high.get(i).unwrap_or(f64::NAN);
+                    let l = low.get(i).unwrap_or(f64::NAN);
+                    let c = close.get(i).unwrap_or(f64::NAN);
+                    values.push(indicator.next((h, l, c)));
+                }
+
+                Ok(Some(Column::from(Series::new("ultosc".into(), values))))
+            },
+            GetOutput::from_type(DataType::Float64),
+        )
+        .alias("ultosc")])
+    }
+
+    pub fn plus_dm(self, high: &str, low: &str, period: usize) -> LazyFrame {
+        self.math_operator_2_in_1_out_period::<PLUS_DM>(high, low, period, "plus_dm")
+    }
+
+    pub fn minus_dm(self, high: &str, low: &str, period: usize) -> LazyFrame {
+        self.math_operator_2_in_1_out_period::<MINUS_DM>(high, low, period, "minus_dm")
+    }
+
+    pub fn t3(self, name: &str, period: usize, v_factor: f64) -> LazyFrame {
+        let name_str = name.to_string();
+        self.0.clone().with_columns([col(&name_str)
+            .map(
+                move |s| {
+                    let ca = s.f64()?;
+                    let mut indicator = T3::new(period, v_factor);
+                    let mut values = Vec::with_capacity(s.len());
+                    for i in 0..s.len() {
+                        let val = ca.get(i).unwrap_or(f64::NAN);
+                        values.push(indicator.next(val));
+                    }
+                    Ok(Some(Column::from(Series::new("t3".into(), values))))
+                },
+                GetOutput::from_type(DataType::Float64),
+            )
+            .alias("t3")])
+    }
+
+    pub fn mama(self, name: &str, fastlimit: f64, slowlimit: f64) -> LazyFrame {
+        let name_str = name.to_string();
+        self.0.clone().with_columns([col(&name_str)
+            .map(
+                move |s| {
+                    let ca = s.f64()?;
+                    let mut indicator = MAMA::new(fastlimit, slowlimit);
+                    let mut mama_vals = Vec::with_capacity(s.len());
+                    let mut fama_vals = Vec::with_capacity(s.len());
+
+                    for i in 0..s.len() {
+                        let val = ca.get(i).unwrap_or(f64::NAN);
+                        let (m, f) = indicator.next(val);
+                        mama_vals.push(m);
+                        fama_vals.push(f);
+                    }
+
+                    let s_mama = Series::new("mama".into(), mama_vals);
+                    let s_fama = Series::new("fama".into(), fama_vals);
+
+                    let struct_series = StructChunked::from_series(
+                        "mama_result".into(),
+                        s.len(),
+                        [s_mama, s_fama].iter(),
+                    )?;
+                    Ok(Some(Column::from(struct_series.into_series())))
+                },
+                GetOutput::from_type(DataType::Struct(vec![
+                    Field::new("mama".into(), DataType::Float64),
+                    Field::new("fama".into(), DataType::Float64),
+                ])),
+            )
+            .alias("mama")])
+    }
+
+    pub fn sar(self, high: &str, low: &str, acceleration: f64, maximum: f64) -> LazyFrame {
+        let high_str = high.to_string();
+        let low_str = low.to_string();
+        self.0
+            .clone()
+            .with_columns([as_struct(vec![col(&high_str), col(&low_str)])
+                .map(
+                    move |s| {
+                        let ca = s.struct_()?;
+                        let s_h = ca.field_by_name(&high_str)?;
+                        let s_l = ca.field_by_name(&low_str)?;
+                        let high = s_h.f64()?;
+                        let low = s_l.f64()?;
+
+                        let mut indicator = SAR::new(acceleration, maximum);
+                        let mut values = Vec::with_capacity(s.len());
+
+                        for i in 0..s.len() {
+                            let h = high.get(i).unwrap_or(f64::NAN);
+                            let l = low.get(i).unwrap_or(f64::NAN);
+                            values.push(indicator.next((h, l)));
+                        }
+
+                        Ok(Some(Column::from(Series::new("sar".into(), values))))
+                    },
+                    GetOutput::from_type(DataType::Float64),
+                )
+                .alias("sar")])
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn sarext(
+        self,
+        high: &str,
+        low: &str,
+        startvalue: f64,
+        offsetonreverse: f64,
+        accelerationinitlong: f64,
+        accelerationlong: f64,
+        accelerationmaxlong: f64,
+        accelerationinitshort: f64,
+        accelerationshort: f64,
+        accelerationmaxshort: f64,
+    ) -> LazyFrame {
+        let high_str = high.to_string();
+        let low_str = low.to_string();
+        self.0
+            .clone()
+            .with_columns([as_struct(vec![col(&high_str), col(&low_str)])
+                .map(
+                    move |s| {
+                        let ca = s.struct_()?;
+                        let s_h = ca.field_by_name(&high_str)?;
+                        let s_l = ca.field_by_name(&low_str)?;
+                        let high = s_h.f64()?;
+                        let low = s_l.f64()?;
+
+                        let mut indicator = SAREXT::new(
+                            startvalue,
+                            offsetonreverse,
+                            accelerationinitlong,
+                            accelerationlong,
+                            accelerationmaxlong,
+                            accelerationinitshort,
+                            accelerationshort,
+                            accelerationmaxshort,
+                        );
+                        let mut values = Vec::with_capacity(s.len());
+
+                        for i in 0..s.len() {
+                            let h = high.get(i).unwrap_or(f64::NAN);
+                            let l = low.get(i).unwrap_or(f64::NAN);
+                            values.push(indicator.next((h, l)));
+                        }
+
+                        Ok(Some(Column::from(Series::new("sarext".into(), values))))
+                    },
+                    GetOutput::from_type(DataType::Float64),
+                )
+                .alias("sarext")])
+    }
+
+    pub fn mavp(
+        self,
+        in1: &str,
+        in2: &str,
+        minperiod: usize,
+        maxperiod: usize,
+        matype: MaType,
+    ) -> LazyFrame {
+        let in1_str = in1.to_string();
+        let in2_str = in2.to_string();
+        self.0
+            .clone()
+            .with_columns([as_struct(vec![col(&in1_str), col(&in2_str)])
+                .map(
+                    move |s| {
+                        let ca = s.struct_()?;
+                        let s_1 = ca.field_by_name(&in1_str)?;
+                        let s_2 = ca.field_by_name(&in2_str)?;
+                        let in1_ca = s_1.f64()?;
+                        let in2_ca = s_2.f64()?;
+
+                        let mut indicator = MAVP::new(minperiod, maxperiod, matype);
+                        let mut values = Vec::with_capacity(s.len());
+
+                        for i in 0..s.len() {
+                            let i1 = in1_ca.get(i).unwrap_or(f64::NAN);
+                            let i2 = in2_ca.get(i).unwrap_or(f64::NAN);
+                            values.push(indicator.next((i1, i2)));
+                        }
+
+                        Ok(Some(Column::from(Series::new("mavp".into(), values))))
+                    },
+                    GetOutput::from_type(DataType::Float64),
+                )
+                .alias("mavp")])
+    }
+
+    pub fn ht_phasor(self, name: &str) -> LazyFrame {
+        let name_str = name.to_string();
+        self.0.clone().with_columns([col(&name_str)
+            .map(
+                move |s| {
+                    let ca = s.f64()?;
+                    let mut indicator = HT_PHASOR::new();
+                    let mut inphase_vals = Vec::with_capacity(s.len());
+                    let mut quadrature_vals = Vec::with_capacity(s.len());
+
+                    for i in 0..s.len() {
+                        let val = ca.get(i).unwrap_or(f64::NAN);
+                        let (inp, q) = indicator.next(val);
+                        inphase_vals.push(inp);
+                        quadrature_vals.push(q);
+                    }
+
+                    let s_inphase = Series::new("inphase".into(), inphase_vals);
+                    let s_quadrature = Series::new("quadrature".into(), quadrature_vals);
+
+                    let struct_series = StructChunked::from_series(
+                        "ht_phasor_result".into(),
+                        s.len(),
+                        [s_inphase, s_quadrature].iter(),
+                    )?;
+                    Ok(Some(Column::from(struct_series.into_series())))
+                },
+                GetOutput::from_type(DataType::Struct(vec![
+                    Field::new("inphase".into(), DataType::Float64),
+                    Field::new("quadrature".into(), DataType::Float64),
+                ])),
+            )
+            .alias("ht_phasor")])
+    }
+
+    pub fn ht_sine(self, name: &str) -> LazyFrame {
+        let name_str = name.to_string();
+        self.0.clone().with_columns([col(&name_str)
+            .map(
+                move |s| {
+                    let ca = s.f64()?;
+                    let mut indicator = HT_SINE::new();
+                    let mut sine_vals = Vec::with_capacity(s.len());
+                    let mut leadsine_vals = Vec::with_capacity(s.len());
+
+                    for i in 0..s.len() {
+                        let val = ca.get(i).unwrap_or(f64::NAN);
+                        let (si, ls) = indicator.next(val);
+                        sine_vals.push(si);
+                        leadsine_vals.push(ls);
+                    }
+
+                    let s_sine = Series::new("sine".into(), sine_vals);
+                    let s_leadsine = Series::new("leadsine".into(), leadsine_vals);
+
+                    let struct_series = StructChunked::from_series(
+                        "ht_sine_result".into(),
+                        s.len(),
+                        [s_sine, s_leadsine].iter(),
+                    )?;
+                    Ok(Some(Column::from(struct_series.into_series())))
+                },
+                GetOutput::from_type(DataType::Struct(vec![
+                    Field::new("sine".into(), DataType::Float64),
+                    Field::new("leadsine".into(), DataType::Float64),
+                ])),
+            )
+            .alias("ht_sine")])
+    }
+
+    fn ta_3_in_1_out_period<I>(
+        self,
+        in1: &str,
+        in2: &str,
+        in3: &str,
+        period: usize,
+        output_name: &str,
+    ) -> LazyFrame
+    where
+        I: Next<(f64, f64, f64), Output = f64> + Send + Sync + 'static,
+        I: From<usize>,
+    {
+        let in1_str = in1.to_string();
+        let in2_str = in2.to_string();
+        let in3_str = in3.to_string();
+        let output_name_str = output_name.to_string();
+        let output_name_for_closure = output_name_str.clone();
+        self.0.clone().with_columns(
+            [as_struct(vec![col(&in1_str), col(&in2_str), col(&in3_str)])
+                .map(
+                    move |s| {
+                        let ca = s.struct_()?;
+                        let s1 = ca.field_by_name(&in1_str)?;
+                        let s2 = ca.field_by_name(&in2_str)?;
+                        let s3 = ca.field_by_name(&in3_str)?;
+
+                        let ca1 = s1.f64()?;
+                        let ca2 = s2.f64()?;
+                        let ca3 = s3.f64()?;
+
+                        let mut indicator = I::from(period);
+                        let mut values = Vec::with_capacity(s.len());
+
+                        for i in 0..s.len() {
+                            let v1 = ca1.get(i).unwrap_or(f64::NAN);
+                            let v2 = ca2.get(i).unwrap_or(f64::NAN);
+                            let v3 = ca3.get(i).unwrap_or(f64::NAN);
+                            values.push(indicator.next((v1, v2, v3)));
+                        }
+
+                        Ok(Some(Column::from(Series::new(
+                            output_name_for_closure.clone().into(),
+                            values,
+                        ))))
+                    },
+                    GetOutput::from_type(DataType::Float64),
+                )
+                .alias(&output_name_str)],
+        )
+    }
+
+    fn ta_3_in_1_out_default<I>(
+        self,
+        in1: &str,
+        in2: &str,
+        in3: &str,
+        output_name: &str,
+    ) -> LazyFrame
+    where
+        I: Next<(f64, f64, f64), Output = f64> + Default + Send + Sync + 'static,
+    {
+        let in1_str = in1.to_string();
+        let in2_str = in2.to_string();
+        let in3_str = in3.to_string();
+        let output_name_str = output_name.to_string();
+        let output_name_for_closure = output_name_str.clone();
+        self.0.clone().with_columns(
+            [as_struct(vec![col(&in1_str), col(&in2_str), col(&in3_str)])
+                .map(
+                    move |s| {
+                        let ca = s.struct_()?;
+                        let s1 = ca.field_by_name(&in1_str)?;
+                        let s2 = ca.field_by_name(&in2_str)?;
+                        let s3 = ca.field_by_name(&in3_str)?;
+
+                        let ca1 = s1.f64()?;
+                        let ca2 = s2.f64()?;
+                        let ca3 = s3.f64()?;
+
+                        let mut indicator = I::default();
+                        let mut values = Vec::with_capacity(s.len());
+
+                        for i in 0..s.len() {
+                            let v1 = ca1.get(i).unwrap_or(f64::NAN);
+                            let v2 = ca2.get(i).unwrap_or(f64::NAN);
+                            let v3 = ca3.get(i).unwrap_or(f64::NAN);
+                            values.push(indicator.next((v1, v2, v3)));
+                        }
+
+                        Ok(Some(Column::from(Series::new(
+                            output_name_for_closure.clone().into(),
+                            values,
+                        ))))
+                    },
+                    GetOutput::from_type(DataType::Float64),
+                )
+                .alias(&output_name_str)],
+        )
+    }
+
+    fn ta_4_in_1_out_default<I>(
+        self,
+        in1: &str,
+        in2: &str,
+        in3: &str,
+        in4: &str,
+        output_name: &str,
+    ) -> LazyFrame
+    where
+        I: Next<(f64, f64, f64, f64), Output = f64> + Default + Send + Sync + 'static,
+    {
+        let in1_str = in1.to_string();
+        let in2_str = in2.to_string();
+        let in3_str = in3.to_string();
+        let in4_str = in4.to_string();
+        let output_name_str = output_name.to_string();
+        let output_name_for_closure = output_name_str.clone();
+        self.0.clone().with_columns([as_struct(vec![
+            col(&in1_str),
+            col(&in2_str),
+            col(&in3_str),
+            col(&in4_str),
+        ])
+        .map(
+            move |s| {
+                let ca = s.struct_()?;
+                let s1 = ca.field_by_name(&in1_str)?;
+                let s2 = ca.field_by_name(&in2_str)?;
+                let s3 = ca.field_by_name(&in3_str)?;
+                let s4 = ca.field_by_name(&in4_str)?;
+
+                let ca1 = s1.f64()?;
+                let ca2 = s2.f64()?;
+                let ca3 = s3.f64()?;
+                let ca4 = s4.f64()?;
+
+                let mut indicator = I::default();
+                let mut values = Vec::with_capacity(s.len());
+
+                for i in 0..s.len() {
+                    let v1 = ca1.get(i).unwrap_or(f64::NAN);
+                    let v2 = ca2.get(i).unwrap_or(f64::NAN);
+                    let v3 = ca3.get(i).unwrap_or(f64::NAN);
+                    let v4 = ca4.get(i).unwrap_or(f64::NAN);
+                    values.push(indicator.next((v1, v2, v3, v4)));
+                }
+
+                Ok(Some(Column::from(Series::new(
+                    output_name_for_closure.clone().into(),
+                    values,
+                ))))
+            },
+            GetOutput::from_type(DataType::Float64),
+        )
+        .alias(&output_name_str)])
+    }
+
+    fn math_transform_1_in_1_out<I>(self, name: &str, output_name: &str) -> LazyFrame
+    where
+        I: Next<f64, Output = f64> + Default + Send + Sync + 'static,
+    {
+        let name = name.to_string();
+        let output_name_str = output_name.to_string();
+        let output_name_for_closure = output_name_str.clone();
+        self.0.clone().with_columns([col(&name)
+            .map(
+                move |s| {
+                    let ca = s.f64()?;
+                    let mut indicator = I::default();
+                    let mut values = Vec::with_capacity(s.len());
+
+                    for i in 0..s.len() {
+                        let val = ca.get(i).unwrap_or(f64::NAN);
+                        values.push(indicator.next(val));
+                    }
+
+                    Ok(Some(Column::from(Series::new(
+                        output_name_for_closure.clone().into(),
+                        values,
+                    ))))
+                },
+                GetOutput::from_type(DataType::Float64),
+            )
+            .alias(&output_name_str)])
+    }
+
+    fn math_operator_2_in_1_out<I>(self, in1: &str, in2: &str, output_name: &str) -> LazyFrame
+    where
+        I: Next<(f64, f64), Output = f64> + Default + Send + Sync + 'static,
+    {
+        let in1_str = in1.to_string();
+        let in2_str = in2.to_string();
+        let output_name_str = output_name.to_string();
+        let output_name_for_closure = output_name_str.clone();
+        self.0
+            .clone()
+            .with_columns([as_struct(vec![col(&in1_str), col(&in2_str)])
+                .map(
+                    move |s| {
+                        let ca = s.struct_()?;
+                        let s1 = ca.field_by_name(&in1_str)?;
+                        let s2 = ca.field_by_name(&in2_str)?;
+
+                        let ca1 = s1.f64()?;
+                        let ca2 = s2.f64()?;
+
+                        let mut indicator = I::default();
+                        let mut values = Vec::with_capacity(s.len());
+
+                        for i in 0..s.len() {
+                            let v1 = ca1.get(i).unwrap_or(f64::NAN);
+                            let v2 = ca2.get(i).unwrap_or(f64::NAN);
+                            values.push(indicator.next((v1, v2)));
+                        }
+
+                        Ok(Some(Column::from(Series::new(
+                            output_name_for_closure.clone().into(),
+                            values,
+                        ))))
+                    },
+                    GetOutput::from_type(DataType::Float64),
+                )
+                .alias(&output_name_str)])
+    }
+
+    fn math_operator_1_in_1_out_period<I>(
+        self,
+        name: &str,
+        period: usize,
+        output_name: &str,
+    ) -> LazyFrame
+    where
+        I: Next<f64, Output = f64> + Send + Sync + 'static,
+        I: From<usize>,
+    {
+        let name = name.to_string();
+        let output_name_str = output_name.to_string();
+        let output_name_for_closure = output_name_str.clone();
+        self.0.clone().with_columns([col(&name)
+            .map(
+                move |s| {
+                    let ca = s.f64()?;
+                    let mut indicator = I::from(period);
+                    let mut values = Vec::with_capacity(s.len());
+
+                    for i in 0..s.len() {
+                        let val = ca.get(i).unwrap_or(f64::NAN);
+                        values.push(indicator.next(val));
+                    }
+
+                    Ok(Some(Column::from(Series::new(
+                        output_name_for_closure.clone().into(),
+                        values,
+                    ))))
+                },
+                GetOutput::from_type(DataType::Float64),
+            )
+            .alias(&output_name_str)])
+    }
+
+    fn math_operator_2_in_1_out_period<I>(
+        self,
+        in1: &str,
+        in2: &str,
+        period: usize,
+        output_name: &str,
+    ) -> LazyFrame
+    where
+        I: Next<(f64, f64), Output = f64> + Send + Sync + 'static,
+        I: From<usize>,
+    {
+        let in1_str = in1.to_string();
+        let in2_str = in2.to_string();
+        let output_name_str = output_name.to_string();
+        let output_name_for_closure = output_name_str.clone();
+        self.0
+            .clone()
+            .with_columns([as_struct(vec![col(&in1_str), col(&in2_str)])
+                .map(
+                    move |s| {
+                        let ca = s.struct_()?;
+                        let s1 = ca.field_by_name(&in1_str)?;
+                        let s2 = ca.field_by_name(&in2_str)?;
+
+                        let ca1 = s1.f64()?;
+                        let ca2 = s2.f64()?;
+
+                        let mut indicator = I::from(period);
+                        let mut values = Vec::with_capacity(s.len());
+
+                        for i in 0..s.len() {
+                            let v1 = ca1.get(i).unwrap_or(f64::NAN);
+                            let v2 = ca2.get(i).unwrap_or(f64::NAN);
+                            values.push(indicator.next((v1, v2)));
+                        }
+
+                        Ok(Some(Column::from(Series::new(
+                            output_name_for_closure.clone().into(),
+                            values,
+                        ))))
+                    },
+                    GetOutput::from_type(DataType::Float64),
+                )
+                .alias(&output_name_str)])
+    }
+
+    pub fn supertrend(self, period: usize, multiplier: f64) -> LazyFrame {
+        self.0
+            .clone()
+            .with_columns([as_struct(vec![col("high"), col("low"), col("close")])
+                .map(
+                    move |s| {
+                        let ca = s.struct_()?;
+                        let s_high = ca.field_by_name("high")?;
+                        let s_low = ca.field_by_name("low")?;
+                        let s_close = ca.field_by_name("close")?;
+
+                        let high = s_high.f64()?;
+                        let low = s_low.f64()?;
+                        let close = s_close.f64()?;
+
+                        let mut st = SuperTrend::new(period, multiplier);
+                        let mut values = Vec::with_capacity(s.len());
+                        let mut directions = Vec::with_capacity(s.len());
+
+                        for i in 0..s.len() {
+                            let h = high.get(i).unwrap_or(0.0);
+                            let l = low.get(i).unwrap_or(0.0);
+                            let c = close.get(i).unwrap_or(0.0);
+                            let (val, dir) = st.next((h, l, c));
+                            values.push(val);
+                            directions.push(dir as f64);
+                        }
+
+                        let st_series = Series::new("supertrend".into(), values);
+                        let dir_series = Series::new("supertrend_direction".into(), directions);
+
+                        let out = StructChunked::from_series(
+                            "supertrend_output".into(),
+                            s.len(),
+                            [st_series, dir_series].iter(),
+                        )?;
+                        Ok(Some(Column::from(out.into_series())))
+                    },
+                    GetOutput::from_type(DataType::Struct(vec![
+                        Field::new("supertrend".into(), DataType::Float64),
+                        Field::new("supertrend_direction".into(), DataType::Float64),
+                    ])),
+                )
+                .alias("supertrend_data")])
+    }
+
+    /// Market Structure (swings + confirmed BOS flips) — rich PA event foundation.
+    ///
+    /// Returns a Struct column "market_structure" with rich metadata fields directly usable
+    /// for event extraction (filter rows where has_current_flip=true), backtester signals,
+    /// and ML (regime + feature joins at flip bars).
+    ///
+    /// This wires the core MarketStructure Next impl + PAEvent system into Polars.
+    /// Emits as Struct series (per project convention for composites like supertrend/bbands).
+    /// For exploded event log: after collect, filter on has_current_flip and construct PAEvent rows
+    /// (or use core extract_pa_events on the state columns).
+    ///
+    /// Sources: see market_structure.rs (MQL5 Part 21 + Parts 66/69 lessons).
+    pub fn anchored_vwap(self, price: &str, volume: &str, anchor: &str) -> LazyFrame {
+        let price = price.to_string();
+        let volume = volume.to_string();
+        let anchor = anchor.to_string();
+
+        self.0
+            .clone()
+            .with_columns([as_struct(vec![col(&price), col(&volume), col(&anchor)])
+                .map(
+                    move |s| {
+                        let ca = s.struct_()?;
+                        let s_price = ca.field_by_name(&price)?;
+                        let s_volume = ca.field_by_name(&volume)?;
+                        let s_anchor = ca.field_by_name(&anchor)?;
+
+                        let price = s_price.f64()?;
+                        let volume = s_volume.f64()?;
+                        let anchor = s_anchor.bool()?;
+
+                        let mut avwap = firequant_core::AnchoredVWAP::new();
+                        let mut values = Vec::with_capacity(s.len());
+
+                        for i in 0..s.len() {
+                            let p = price.get(i).unwrap_or(0.0);
+                            let v = volume.get(i).unwrap_or(0.0);
+                            let a = anchor.get(i).unwrap_or(false);
+                            values.push(avwap.next((p, v, a)));
+                        }
+
+                        Ok(Some(Column::from(Series::new(
+                            "anchored_vwap".into(),
+                            values,
+                        ))))
+                    },
+                    GetOutput::from_type(DataType::Float64),
+                )
+                .alias("avwap")])
+    }
+
+    pub fn hma(self, name: &str, period: usize) -> LazyFrame {
+        let name = name.to_string();
+        self.0.clone().with_columns([col(&name)
+            .map(
+                move |s| {
+                    let ca = s.f64()?;
+                    let mut hma = firequant_core::HMA::new(period);
+                    let mut values = Vec::with_capacity(s.len());
+
+                    for i in 0..s.len() {
+                        let val = ca.get(i).unwrap_or(0.0);
+                        values.push(hma.next(val));
+                    }
+
+                    Ok(Some(Column::from(Series::new("hma".into(), values))))
+                },
+                GetOutput::from_type(DataType::Float64),
+            )
+            .alias("hma")])
+    }
+
+    pub fn kalman(self, name: &str, q: f64, r: f64) -> LazyFrame {
+        let name = name.to_string();
+        self.0.clone().with_columns([col(&name)
+            .map(
+                move |s| {
+                    let ca = s.f64()?;
+                    let mut indicator = firequant_core::indicators::kalman::KalmanFilter::new(q, r);
+                    let mut values = Vec::with_capacity(s.len());
+
+                    for i in 0..s.len() {
+                        let val = ca.get(i).unwrap_or(f64::NAN);
+                        values.push(indicator.next(val));
+                    }
+
+                    Ok(Some(Column::from(Series::new("kalman".into(), values))))
+                },
+                GetOutput::from_type(DataType::Float64),
+            )
+            .alias("kalman")])
+    }
+
+    pub fn kinematic_kalman(self, name: &str, q_pos: f64, q_vel: f64, r: f64) -> LazyFrame {
+        let name = name.to_string();
+        self.0.clone().with_columns([col(&name)
+            .map(
+                move |s| {
+                    let ca = s.f64()?;
+                    let mut indicator =
+                        firequant_core::indicators::kinematic_kalman::KinematicKalmanFilter::new(
+                            q_pos, q_vel, r,
+                        );
+                    let mut values = Vec::with_capacity(s.len());
+
+                    for i in 0..s.len() {
+                        let val = ca.get(i).unwrap_or(f64::NAN);
+                        values.push(indicator.next(val));
+                    }
+
+                    Ok(Some(Column::from(Series::new(
+                        "kinematic_kalman".into(),
+                        values,
+                    ))))
+                },
+                GetOutput::from_type(DataType::Float64),
+            )
+            .alias("kinematic_kalman")])
+    }
+
+    pub fn vpn(
+        self,
+        high: &str,
+        low: &str,
+        close: &str,
+        volume: &str,
+        period: usize,
+        smooth_period: usize,
+    ) -> LazyFrame {
+        let high_str = high.to_string();
+        let low_str = low.to_string();
+        let close_str = close.to_string();
+        let volume_str = volume.to_string();
+
+        self.0.clone().with_columns([as_struct(vec![
+            col(&high_str),
+            col(&low_str),
+            col(&close_str),
+            col(&volume_str),
+        ])
+        .map(
+            move |s| {
+                let ca = s.struct_()?;
+                let s_h = ca.field_by_name(&high_str)?;
+                let s_l = ca.field_by_name(&low_str)?;
+                let s_c = ca.field_by_name(&close_str)?;
+                let s_v = ca.field_by_name(&volume_str)?;
+
+                let high = s_h.f64()?;
+                let low = s_l.f64()?;
+                let close = s_c.f64()?;
+                let volume = s_v.f64()?;
+
+                let mut indicator = firequant_core::VPNIndicator::new(period, smooth_period);
+                let mut values = Vec::with_capacity(s.len());
+
+                for i in 0..s.len() {
+                    let h = high.get(i).unwrap_or(f64::NAN);
+                    let l = low.get(i).unwrap_or(f64::NAN);
+                    let c = close.get(i).unwrap_or(f64::NAN);
+                    let v = volume.get(i).unwrap_or(f64::NAN);
+                    values.push(indicator.next((h, l, c, v)));
+                }
+
+                Ok(Some(Column::from(Series::new("vpn".into(), values))))
+            },
+            GetOutput::from_type(DataType::Float64),
+        )
+        .alias("vpn")])
+    }
+
+    pub fn gap_momentum(
+        self,
+        open: &str,
+        close: &str,
+        period: usize,
+        signal_period: usize,
+    ) -> LazyFrame {
+        let open_str = open.to_string();
+        let close_str = close.to_string();
+
+        self.0
+            .clone()
+            .with_columns([as_struct(vec![col(&open_str), col(&close_str)])
+                .map(
+                    move |s| {
+                        let ca = s.struct_()?;
+                        let s_o = ca.field_by_name(&open_str)?;
+                        let s_c = ca.field_by_name(&close_str)?;
+
+                        let open = s_o.f64()?;
+                        let close = s_c.f64()?;
+
+                        let mut indicator = firequant_core::GapMomentum::new(period, signal_period);
+                        let mut ratio_vals = Vec::with_capacity(s.len());
+                        let mut signal_vals = Vec::with_capacity(s.len());
+
+                        for i in 0..s.len() {
+                            let o = open.get(i).unwrap_or(f64::NAN);
+                            let c = close.get(i).unwrap_or(f64::NAN);
+                            let (ratio, signal) = indicator.next((o, c));
+                            ratio_vals.push(ratio);
+                            signal_vals.push(signal);
+                        }
+
+                        let s_ratio = Series::new("gap_ratio".into(), ratio_vals);
+                        let s_signal = Series::new("gap_signal".into(), signal_vals);
+                        let struct_series = StructChunked::from_series(
+                            "gap_momentum_result".into(),
+                            s.len(),
+                            [s_ratio, s_signal].iter(),
+                        )?;
+                        Ok(Some(Column::from(struct_series.into_series())))
+                    },
+                    GetOutput::from_type(DataType::Struct(vec![
+                        Field::new("gap_ratio".into(), DataType::Float64),
+                        Field::new("gap_signal".into(), DataType::Float64),
+                    ])),
+                )
+                .alias("gap_momentum")])
+    }
+
+    pub fn autotune_filter(self, name: &str, window: usize, bandwidth: f64) -> LazyFrame {
+        let name_str = name.to_string();
+        self.0.clone().with_columns([col(&name_str)
+            .map(
+                move |s| {
+                    let ca = s.f64()?;
+                    let mut indicator = firequant_core::AutoTuneFilter::new(window, bandwidth);
+                    let mut values = Vec::with_capacity(s.len());
+
+                    for i in 0..s.len() {
+                        let val = ca.get(i).unwrap_or(f64::NAN);
+                        values.push(indicator.next(val));
+                    }
+
+                    Ok(Some(Column::from(Series::new("autotune".into(), values))))
+                },
+                GetOutput::from_type(DataType::Float64),
+            )
+            .alias("autotune")])
+    }
+
+    pub fn adaptive_ema(
+        self,
+        high: &str,
+        low: &str,
+        close: &str,
+        period: usize,
+        pds: usize,
+    ) -> LazyFrame {
+        let h_str = high.to_string();
+        let l_str = low.to_string();
+        let c_str = close.to_string();
+
+        self.0
+            .clone()
+            .with_columns([as_struct(vec![col(&h_str), col(&l_str), col(&c_str)])
+                .map(
+                    move |s| {
+                        let ca = s.struct_()?;
+                        let f_h = ca.field_by_name(&h_str)?;
+                        let high = f_h.f64()?;
+                        let f_l = ca.field_by_name(&l_str)?;
+                        let low = f_l.f64()?;
+                        let f_c = ca.field_by_name(&c_str)?;
+                        let close = f_c.f64()?;
+
+                        let mut indicator = firequant_core::AdaptiveEMA::new(period, pds);
+                        let mut values = Vec::with_capacity(s.len());
+
+                        for i in 0..s.len() {
+                            let h = high.get(i).unwrap_or(f64::NAN);
+                            let l = low.get(i).unwrap_or(f64::NAN);
+                            let c = close.get(i).unwrap_or(f64::NAN);
+                            values.push(indicator.next((h, l, c)));
+                        }
+
+                        Ok(Some(Column::from(Series::new(
+                            "adaptive_ema".into(),
+                            values,
+                        ))))
+                    },
+                    GetOutput::from_type(DataType::Float64),
+                )
+                .alias("adaptive_ema")])
+    }
+
+    pub fn tradj_ema(
+        self,
+        high: &str,
+        low: &str,
+        close: &str,
+        period: usize,
+        pds: usize,
+        mltp: f64,
+    ) -> LazyFrame {
+        let h_str = high.to_string();
+        let l_str = low.to_string();
+        let c_str = close.to_string();
+
+        self.0
+            .clone()
+            .with_columns([as_struct(vec![col(&h_str), col(&l_str), col(&c_str)])
+                .map(
+                    move |s| {
+                        let ca = s.struct_()?;
+                        let f_h = ca.field_by_name(&h_str)?;
+                        let high = f_h.f64()?;
+                        let f_l = ca.field_by_name(&l_str)?;
+                        let low = f_l.f64()?;
+                        let f_c = ca.field_by_name(&c_str)?;
+                        let close = f_c.f64()?;
+
+                        let mut indicator = firequant_core::TRAdjEMA::new(period, pds, mltp);
+                        let mut values = Vec::with_capacity(s.len());
+
+                        for i in 0..s.len() {
+                            let h = high.get(i).unwrap_or(f64::NAN);
+                            let l = low.get(i).unwrap_or(f64::NAN);
+                            let c = close.get(i).unwrap_or(f64::NAN);
+                            values.push(indicator.next((h, l, c)));
+                        }
+
+                        Ok(Some(Column::from(Series::new("tradj_ema".into(), values))))
+                    },
+                    GetOutput::from_type(DataType::Float64),
+                )
+                .alias("tradj_ema")])
+    }
+
+    pub fn obvm(
+        self,
+        high: &str,
+        low: &str,
+        close: &str,
+        volume: &str,
+        obvm_period: usize,
+        signal_period: usize,
+    ) -> LazyFrame {
+        let h_str = high.to_string();
+        let l_str = low.to_string();
+        let c_str = close.to_string();
+        let v_str = volume.to_string();
+
+        self.0.clone().with_columns([as_struct(vec![
+            col(&h_str),
+            col(&l_str),
+            col(&c_str),
+            col(&v_str),
+        ])
+        .map(
+            move |s| {
+                let ca = s.struct_()?;
+                let f_h = ca.field_by_name(&h_str)?;
+                let high = f_h.f64()?;
+                let f_l = ca.field_by_name(&l_str)?;
+                let low = f_l.f64()?;
+                let f_c = ca.field_by_name(&c_str)?;
+                let close = f_c.f64()?;
+                let f_v = ca.field_by_name(&v_str)?;
+                let volume = f_v.f64()?;
+
+                let mut indicator = firequant_core::Obvm::new(obvm_period, signal_period);
+                let mut obvm_vals = Vec::with_capacity(s.len());
+                let mut signal_vals = Vec::with_capacity(s.len());
+
+                for i in 0..s.len() {
+                    let h = high.get(i).unwrap_or(f64::NAN);
+                    let l = low.get(i).unwrap_or(f64::NAN);
+                    let c = close.get(i).unwrap_or(f64::NAN);
+                    let v = volume.get(i).unwrap_or(f64::NAN);
+                    let (o, sig) = indicator.next((h, l, c, v));
+                    obvm_vals.push(o);
+                    signal_vals.push(sig);
+                }
+
+                let s_obvm = Series::new("obvm".into(), obvm_vals);
+                let s_signal = Series::new("signal".into(), signal_vals);
+                let struct_series = StructChunked::from_series(
+                    "obvm_data".into(),
+                    s.len(),
+                    [s_obvm, s_signal].iter(),
+                )?;
+                Ok(Some(Column::from(struct_series.into_series())))
+            },
+            GetOutput::from_type(DataType::Struct(vec![
+                Field::new("obvm".into(), DataType::Float64),
+                Field::new("signal".into(), DataType::Float64),
+            ])),
+        )
+        .alias("obvm_data")])
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn vfi(
+        self,
+        high: &str,
+        low: &str,
+        close: &str,
+        volume: &str,
+        period: usize,
+        coef: f64,
+        vcoef: f64,
+        smoothing_period: usize,
+    ) -> LazyFrame {
+        let h_str = high.to_string();
+        let l_str = low.to_string();
+        let c_str = close.to_string();
+        let v_str = volume.to_string();
+
+        self.0.clone().with_columns([as_struct(vec![
+            col(&h_str),
+            col(&l_str),
+            col(&c_str),
+            col(&v_str),
+        ])
+        .map(
+            move |s| {
+                let ca = s.struct_()?;
+                let f_h = ca.field_by_name(&h_str)?;
+                let high = f_h.f64()?;
+                let f_l = ca.field_by_name(&l_str)?;
+                let low = f_l.f64()?;
+                let f_c = ca.field_by_name(&c_str)?;
+                let close = f_c.f64()?;
+                let f_v = ca.field_by_name(&v_str)?;
+                let volume = f_v.f64()?;
+
+                let mut indicator = firequant_core::Vfi::new(period, coef, vcoef, smoothing_period);
+                let mut values = Vec::with_capacity(s.len());
+
+                for i in 0..s.len() {
+                    let h = high.get(i).unwrap_or(f64::NAN);
+                    let l = low.get(i).unwrap_or(f64::NAN);
+                    let c = close.get(i).unwrap_or(f64::NAN);
+                    let v = volume.get(i).unwrap_or(f64::NAN);
+                    values.push(indicator.next((h, l, c, v)));
+                }
+
+                Ok(Some(Column::from(Series::new("vfi".into(), values))))
+            },
+            GetOutput::from_type(DataType::Float64),
+        )
+        .alias("vfi")])
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn sve_volatility_bands(
+        self,
+        high: &str,
+        low: &str,
+        close: &str,
+        bands_period: usize,
+        bands_deviation: f64,
+        low_band_adjust: f64,
+        mid_line_length: usize,
+    ) -> LazyFrame {
+        let h_str = high.to_string();
+        let l_str = low.to_string();
+        let c_str = close.to_string();
+
+        self.0
+            .clone()
+            .with_columns([as_struct(vec![col(&h_str), col(&l_str), col(&c_str)])
+                .map(
+                    move |s| {
+                        let ca = s.struct_()?;
+                        let f_h = ca.field_by_name(&h_str)?;
+                        let high = f_h.f64()?;
+                        let f_l = ca.field_by_name(&l_str)?;
+                        let low = f_l.f64()?;
+                        let f_c = ca.field_by_name(&c_str)?;
+                        let close = f_c.f64()?;
+
+                        let mut indicator = firequant_core::SVEVolatilityBands::new(
+                            bands_period,
+                            bands_deviation,
+                            low_band_adjust,
+                            mid_line_length,
+                        );
+                        let mut upper_vals = Vec::with_capacity(s.len());
+                        let mut mid_vals = Vec::with_capacity(s.len());
+                        let mut lower_vals = Vec::with_capacity(s.len());
+
+                        for i in 0..s.len() {
+                            let h = high.get(i).unwrap_or(f64::NAN);
+                            let l = low.get(i).unwrap_or(f64::NAN);
+                            let c = close.get(i).unwrap_or(f64::NAN);
+                            let (upper, mid, lower) = indicator.next((h, l, c));
+                            upper_vals.push(upper);
+                            mid_vals.push(mid);
+                            lower_vals.push(lower);
+                        }
+
+                        let s_upper = Series::new("upper".into(), upper_vals);
+                        let s_mid = Series::new("middle".into(), mid_vals);
+                        let s_lower = Series::new("lower".into(), lower_vals);
+                        let struct_series = StructChunked::from_series(
+                            "sve_bands_data".into(),
+                            s.len(),
+                            [s_upper, s_mid, s_lower].iter(),
+                        )?;
+                        Ok(Some(Column::from(struct_series.into_series())))
+                    },
+                    GetOutput::from_type(DataType::Struct(vec![
+                        Field::new("upper".into(), DataType::Float64),
+                        Field::new("middle".into(), DataType::Float64),
+                        Field::new("lower".into(), DataType::Float64),
+                    ])),
+                )
+                .alias("sve_bands_data")])
+    }
+
+    pub fn exp_dev_bands(
+        self,
+        name: &str,
+        period: usize,
+        multiplier: f64,
+        use_sma: bool,
+    ) -> LazyFrame {
+        let name_str = name.to_string();
+        self.0.clone().with_columns([col(&name_str)
+            .map(
+                move |s| {
+                    let ca = s.f64()?;
+                    let mut indicator =
+                        firequant_core::ExpDevBands::new(period, multiplier, use_sma);
+                    let mut upper_vals = Vec::with_capacity(s.len());
+                    let mut mid_vals = Vec::with_capacity(s.len());
+                    let mut lower_vals = Vec::with_capacity(s.len());
+
+                    for i in 0..s.len() {
+                        let val = ca.get(i).unwrap_or(f64::NAN);
+                        let (upper, mid, lower) = indicator.next(val);
+                        upper_vals.push(upper);
+                        mid_vals.push(mid);
+                        lower_vals.push(lower);
+                    }
+
+                    let s_upper = Series::new("upper".into(), upper_vals);
+                    let s_mid = Series::new("middle".into(), mid_vals);
+                    let s_lower = Series::new("lower".into(), lower_vals);
+                    let struct_series = StructChunked::from_series(
+                        "exp_dev_bands_data".into(),
+                        s.len(),
+                        [s_upper, s_mid, s_lower].iter(),
+                    )?;
+                    Ok(Some(Column::from(struct_series.into_series())))
+                },
+                GetOutput::from_type(DataType::Struct(vec![
+                    Field::new("upper".into(), DataType::Float64),
+                    Field::new("middle".into(), DataType::Float64),
+                    Field::new("lower".into(), DataType::Float64),
+                ])),
+            )
+            .alias("exp_dev_bands_data")])
+    }
+
+    pub fn sdo(
+        self,
+        name: &str,
+        lookback_period: usize,
+        period: usize,
+        ema_pds: usize,
+    ) -> LazyFrame {
+        let name_str = name.to_string();
+        self.0.clone().with_columns([col(&name_str)
+            .map(
+                move |s| {
+                    let ca = s.f64()?;
+                    let mut indicator = firequant_core::SDO::new(lookback_period, period, ema_pds);
+                    let mut values = Vec::with_capacity(s.len());
+
+                    for i in 0..s.len() {
+                        let val = ca.get(i).unwrap_or(f64::NAN);
+                        values.push(indicator.next(val));
+                    }
+
+                    Ok(Some(Column::from(Series::new("sdo".into(), values))))
+                },
+                GetOutput::from_type(DataType::Float64),
+            )
+            .alias("sdo")])
+    }
+
+    pub fn rsmk(self, price: &str, benchmark: &str, length: usize, ema_length: usize) -> LazyFrame {
+        let p_str = price.to_string();
+        let b_str = benchmark.to_string();
+
+        self.0
+            .clone()
+            .with_columns([as_struct(vec![col(&p_str), col(&b_str)])
+                .map(
+                    move |s| {
+                        let ca = s.struct_()?;
+                        let f_p = ca.field_by_name(&p_str)?;
+                        let price = f_p.f64()?;
+                        let f_b = ca.field_by_name(&b_str)?;
+                        let benchmark = f_b.f64()?;
+
+                        let mut indicator = firequant_core::RSMK::new(length, ema_length);
+                        let mut values = Vec::with_capacity(s.len());
+
+                        for i in 0..s.len() {
+                            let p = price.get(i).unwrap_or(f64::NAN);
+                            let b = benchmark.get(i).unwrap_or(f64::NAN);
+                            values.push(indicator.next((p, b)));
+                        }
+
+                        Ok(Some(Column::from(Series::new("rsmk".into(), values))))
+                    },
+                    GetOutput::from_type(DataType::Float64),
+                )
+                .alias("rsmk")])
+    }
+
+    pub fn rodc(
+        self,
+        name: &str,
+        window_size: usize,
+        threshold: f64,
+        smooth_period: usize,
+    ) -> LazyFrame {
+        let name_str = name.to_string();
+        self.0.clone().with_columns([col(&name_str)
+            .map(
+                move |s| {
+                    let ca = s.f64()?;
+                    let mut indicator =
+                        firequant_core::RODC::new(window_size, threshold, smooth_period);
+                    let mut values = Vec::with_capacity(s.len());
+
+                    for i in 0..s.len() {
+                        let val = ca.get(i).unwrap_or(f64::NAN);
+                        values.push(indicator.next(val));
+                    }
+
+                    Ok(Some(Column::from(Series::new("rodc".into(), values))))
+                },
+                GetOutput::from_type(DataType::Float64),
+            )
+            .alias("rodc")])
+    }
+
+    pub fn reverse_ema(self, name: &str, alpha: f64) -> LazyFrame {
+        let name_str = name.to_string();
+        self.0.clone().with_columns([col(&name_str)
+            .map(
+                move |s| {
+                    let ca = s.f64()?;
+                    let mut indicator = firequant_core::ReverseEMA::new(alpha);
+                    let mut values = Vec::with_capacity(s.len());
+
+                    for i in 0..s.len() {
+                        let val = ca.get(i).unwrap_or(f64::NAN);
+                        values.push(indicator.next(val));
+                    }
+
+                    Ok(Some(Column::from(Series::new(
+                        "reverse_ema".into(),
+                        values,
+                    ))))
+                },
+                GetOutput::from_type(DataType::Float64),
+            )
+            .alias("reverse_ema")])
+    }
+
+    pub fn harrington_adx(
+        self,
+        high: &str,
+        low: &str,
+        close: &str,
+        adx_length: usize,
+        adx_smooth_length: usize,
+    ) -> LazyFrame {
+        let h_str = high.to_string();
+        let l_str = low.to_string();
+        let c_str = close.to_string();
+
+        self.0
+            .clone()
+            .with_columns([as_struct(vec![col(&h_str), col(&l_str), col(&c_str)])
+                .map(
+                    move |s| {
+                        let ca = s.struct_()?;
+                        let f_h = ca.field_by_name(&h_str)?;
+                        let high = f_h.f64()?;
+                        let f_l = ca.field_by_name(&l_str)?;
+                        let low = f_l.f64()?;
+                        let f_c = ca.field_by_name(&c_str)?;
+                        let close = f_c.f64()?;
+
+                        let mut indicator = firequant_core::HarringtonADXOscillator::new(
+                            adx_length,
+                            adx_smooth_length,
+                        );
+                        let mut values = Vec::with_capacity(s.len());
+
+                        for i in 0..s.len() {
+                            let h = high.get(i).unwrap_or(f64::NAN);
+                            let l = low.get(i).unwrap_or(f64::NAN);
+                            let c = close.get(i).unwrap_or(f64::NAN);
+                            values.push(indicator.next((h, l, c)));
+                        }
+
+                        Ok(Some(Column::from(Series::new(
+                            "harrington_adx".into(),
+                            values,
+                        ))))
+                    },
+                    GetOutput::from_type(DataType::Float64),
+                )
+                .alias("harrington_adx")])
+    }
+
+    pub fn keltner_channels(
+        self,
+        high: &str,
+        low: &str,
+        close: &str,
+        ema_period: usize,
+        atr_period: usize,
+        multiplier: f64,
+    ) -> LazyFrame {
+        let high = high.to_string();
+        let low = low.to_string();
+        let close = close.to_string();
+
+        self.0
+            .clone()
+            .with_columns([as_struct(vec![col(&high), col(&low), col(&close)])
+                .map(
+                    move |s| {
+                        let ca = s.struct_()?;
+                        let s_high = ca.field_by_name(&high)?;
+                        let s_low = ca.field_by_name(&low)?;
+                        let s_close = ca.field_by_name(&close)?;
+
+                        let high = s_high.f64()?;
+                        let low = s_low.f64()?;
+                        let close = s_close.f64()?;
+
+                        let mut kc = firequant_core::KeltnerChannels::new(
+                            ema_period, atr_period, multiplier,
+                        );
+                        let mut uppers = Vec::with_capacity(s.len());
+                        let mut middles = Vec::with_capacity(s.len());
+                        let mut lowers = Vec::with_capacity(s.len());
+
+                        for i in 0..s.len() {
+                            let h = high.get(i).unwrap_or(0.0);
+                            let l = low.get(i).unwrap_or(0.0);
+                            let c = close.get(i).unwrap_or(0.0);
+                            let (upper, middle, lower) = kc.next((h, l, c));
+                            uppers.push(upper);
+                            middles.push(middle);
+                            lowers.push(lower);
+                        }
+
+                        let upper_series = Series::new("upper".into(), uppers);
+                        let middle_series = Series::new("middle".into(), middles);
+                        let lower_series = Series::new("lower".into(), lowers);
+
+                        let out = StructChunked::from_series(
+                            "keltner_output".into(),
+                            s.len(),
+                            [upper_series, middle_series, lower_series].iter(),
+                        )?;
+                        Ok(Some(Column::from(out.into_series())))
+                    },
+                    GetOutput::from_type(DataType::Struct(vec![
+                        Field::new("upper".into(), DataType::Float64),
+                        Field::new("middle".into(), DataType::Float64),
+                        Field::new("lower".into(), DataType::Float64),
+                    ])),
+                )
+                .alias("keltner_data")])
+    }
+
+    pub fn alma(self, name: &str, period: usize, offset: f64, sigma: f64) -> LazyFrame {
+        let name = name.to_string();
+        self.0.clone().with_columns([col(&name)
+            .map(
+                move |s| {
+                    let ca = s.f64()?;
+                    let mut alma = firequant_core::ALMA::new(period, offset, sigma);
+                    let mut values = Vec::with_capacity(s.len());
+
+                    for i in 0..s.len() {
+                        let val = ca.get(i).unwrap_or(0.0);
+                        values.push(alma.next(val));
+                    }
+
+                    Ok(Some(Column::from(Series::new("alma".into(), values))))
+                },
+                GetOutput::from_type(DataType::Float64),
+            )
+            .alias("alma")])
+    }
+
+    pub fn donchian_channels(self, high: &str, low: &str, period: usize) -> LazyFrame {
+        let high = high.to_string();
+        let low = low.to_string();
+
+        self.0
+            .clone()
+            .with_columns([as_struct(vec![col(&high), col(&low)])
+                .map(
+                    move |s| {
+                        let ca = s.struct_()?;
+                        let s_high = ca.field_by_name(&high)?;
+                        let s_low = ca.field_by_name(&low)?;
+
+                        let high = s_high.f64()?;
+                        let low = s_low.f64()?;
+
+                        let mut dc = firequant_core::DonchianChannels::new(period);
+                        let mut uppers = Vec::with_capacity(s.len());
+                        let mut middles = Vec::with_capacity(s.len());
+                        let mut lowers = Vec::with_capacity(s.len());
+
+                        for i in 0..s.len() {
+                            let h = high.get(i).unwrap_or(0.0);
+                            let l = low.get(i).unwrap_or(0.0);
+                            let (upper, middle, lower) = dc.next((h, l));
+                            uppers.push(upper);
+                            middles.push(middle);
+                            lowers.push(lower);
+                        }
+
+                        let upper_series = Series::new("upper".into(), uppers);
+                        let middle_series = Series::new("middle".into(), middles);
+                        let lower_series = Series::new("lower".into(), lowers);
+
+                        let out = StructChunked::from_series(
+                            "donchian_output".into(),
+                            s.len(),
+                            [upper_series, middle_series, lower_series].iter(),
+                        )?;
+                        Ok(Some(Column::from(out.into_series())))
+                    },
+                    GetOutput::from_type(DataType::Struct(vec![
+                        Field::new("upper".into(), DataType::Float64),
+                        Field::new("middle".into(), DataType::Float64),
+                        Field::new("lower".into(), DataType::Float64),
+                    ])),
+                )
+                .alias("donchian_data")])
+    }
+
+    pub fn ttm_squeeze(
+        self,
+        high: &str,
+        low: &str,
+        close: &str,
+        period: usize,
+        multiplier_bb: f64,
+        multiplier_kc: f64,
+    ) -> LazyFrame {
+        let high = high.to_string();
+        let low = low.to_string();
+        let close = close.to_string();
+
+        self.0
+            .clone()
+            .with_columns([as_struct(vec![col(&high), col(&low), col(&close)])
+                .map(
+                    move |s| {
+                        let ca = s.struct_()?;
+                        let s_high = ca.field_by_name(&high)?;
+                        let s_low = ca.field_by_name(&low)?;
+                        let s_close = ca.field_by_name(&close)?;
+
+                        let high = s_high.f64()?;
+                        let low = s_low.f64()?;
+                        let close = s_close.f64()?;
+
+                        let mut ttm =
+                            firequant_core::TTMSqueeze::new(period, multiplier_bb, multiplier_kc);
+                        let mut histograms = Vec::with_capacity(s.len());
+                        let mut squeezed = Vec::with_capacity(s.len());
+
+                        for i in 0..s.len() {
+                            let h = high.get(i).unwrap_or(0.0);
+                            let l = low.get(i).unwrap_or(0.0);
+                            let c = close.get(i).unwrap_or(0.0);
+                            let (hist, is_sq) = ttm.next((h, l, c));
+                            histograms.push(hist);
+                            squeezed.push(is_sq);
+                        }
+
+                        let hist_series = Series::new("histogram".into(), histograms);
+                        let squeezed_series = Series::new("is_squeezed".into(), squeezed);
+
+                        let out = StructChunked::from_series(
+                            "ttm_squeeze_output".into(),
+                            s.len(),
+                            [hist_series, squeezed_series].iter(),
+                        )?;
+                        Ok(Some(Column::from(out.into_series())))
+                    },
+                    GetOutput::from_type(DataType::Struct(vec![
+                        Field::new("histogram".into(), DataType::Float64),
+                        Field::new("is_squeezed".into(), DataType::Boolean),
+                    ])),
+                )
+                .alias("ttm_squeeze_data")])
+    }
+
+    pub fn vortex_indicator(self, high: &str, low: &str, close: &str, period: usize) -> LazyFrame {
+        let high = high.to_string();
+        let low = low.to_string();
+        let close = close.to_string();
+
+        self.0
+            .clone()
+            .with_columns([as_struct(vec![col(&high), col(&low), col(&close)])
+                .map(
+                    move |s| {
+                        let ca = s.struct_()?;
+                        let s_high = ca.field_by_name(&high)?;
+                        let s_low = ca.field_by_name(&low)?;
+                        let s_close = ca.field_by_name(&close)?;
+
+                        let high = s_high.f64()?;
+                        let low = s_low.f64()?;
+                        let close = s_close.f64()?;
+
+                        let mut vi = firequant_core::VortexIndicator::new(period);
+                        let mut plus_vals = Vec::with_capacity(s.len());
+                        let mut minus_vals = Vec::with_capacity(s.len());
+
+                        for i in 0..s.len() {
+                            let h = high.get(i).unwrap_or(0.0);
+                            let l = low.get(i).unwrap_or(0.0);
+                            let c = close.get(i).unwrap_or(0.0);
+                            let (plus, minus) = vi.next((h, l, c));
+                            plus_vals.push(plus);
+                            minus_vals.push(minus);
+                        }
+
+                        let plus_series = Series::new("vi_plus".into(), plus_vals);
+                        let minus_series = Series::new("vi_minus".into(), minus_vals);
+
+                        let out = StructChunked::from_series(
+                            "vortex_output".into(),
+                            s.len(),
+                            [plus_series, minus_series].iter(),
+                        )?;
+                        Ok(Some(Column::from(out.into_series())))
+                    },
+                    GetOutput::from_type(DataType::Struct(vec![
+                        Field::new("vi_plus".into(), DataType::Float64),
+                        Field::new("vi_minus".into(), DataType::Float64),
+                    ])),
+                )
+                .alias("vortex_data")])
+    }
+
+    pub fn heikin_ashi(self, open: &str, high: &str, low: &str, close: &str) -> LazyFrame {
+        let open = open.to_string();
+        let high = high.to_string();
+        let low = low.to_string();
+        let close = close.to_string();
+
+        self.0.clone().with_columns([as_struct(vec![
+            col(&open),
+            col(&high),
+            col(&low),
+            col(&close),
+        ])
+        .map(
+            move |s| {
+                let ca = s.struct_()?;
+                let s_open = ca.field_by_name(&open)?;
+                let s_high = ca.field_by_name(&high)?;
+                let s_low = ca.field_by_name(&low)?;
+                let s_close = ca.field_by_name(&close)?;
+
+                let open = s_open.f64()?;
+                let high = s_high.f64()?;
+                let low = s_low.f64()?;
+                let close = s_close.f64()?;
+
+                let mut ha = firequant_core::HeikinAshi::new();
+                let mut ha_opens = Vec::with_capacity(s.len());
+                let mut ha_highs = Vec::with_capacity(s.len());
+                let mut ha_lows = Vec::with_capacity(s.len());
+                let mut ha_closes = Vec::with_capacity(s.len());
+
+                for i in 0..s.len() {
+                    let o = open.get(i).unwrap_or(0.0);
+                    let h = high.get(i).unwrap_or(0.0);
+                    let l = low.get(i).unwrap_or(0.0);
+                    let c = close.get(i).unwrap_or(0.0);
+                    let (ha_o, ha_h, ha_l, ha_c) = ha.next((o, h, l, c));
+                    ha_opens.push(ha_o);
+                    ha_highs.push(ha_h);
+                    ha_lows.push(ha_l);
+                    ha_closes.push(ha_c);
+                }
+
+                let o_series = Series::new("ha_open".into(), ha_opens);
+                let h_series = Series::new("ha_high".into(), ha_highs);
+                let l_series = Series::new("ha_low".into(), ha_lows);
+                let c_series = Series::new("ha_close".into(), ha_closes);
+
+                let out = StructChunked::from_series(
+                    "heikin_ashi_output".into(),
+                    s.len(),
+                    [o_series, h_series, l_series, c_series].iter(),
+                )?;
+                Ok(Some(Column::from(out.into_series())))
+            },
+            GetOutput::from_type(DataType::Struct(vec![
+                Field::new("ha_open".into(), DataType::Float64),
+                Field::new("ha_high".into(), DataType::Float64),
+                Field::new("ha_low".into(), DataType::Float64),
+                Field::new("ha_close".into(), DataType::Float64),
+            ])),
+        )
+        .alias("heikin_ashi_data")])
+    }
+
+    pub fn wavetrend(
+        self,
+        high: &str,
+        low: &str,
+        close: &str,
+        n1: usize,
+        n2: usize,
+        n3: usize,
+    ) -> LazyFrame {
+        let high = high.to_string();
+        let low = low.to_string();
+        let close = close.to_string();
+
+        self.0
+            .clone()
+            .with_columns([as_struct(vec![col(&high), col(&low), col(&close)])
+                .map(
+                    move |s| {
+                        let ca = s.struct_()?;
+                        let s_high = ca.field_by_name(&high)?;
+                        let s_low = ca.field_by_name(&low)?;
+                        let s_close = ca.field_by_name(&close)?;
+
+                        let high = s_high.f64()?;
+                        let low = s_low.f64()?;
+                        let close = s_close.f64()?;
+
+                        let mut wt = firequant_core::WaveTrend::new(n1, n2, n3);
+                        let mut wt1_vals = Vec::with_capacity(s.len());
+                        let mut wt2_vals = Vec::with_capacity(s.len());
+
+                        for i in 0..s.len() {
+                            let h = high.get(i).unwrap_or(0.0);
+                            let l = low.get(i).unwrap_or(0.0);
+                            let c = close.get(i).unwrap_or(0.0);
+                            let (wt1, wt2) = wt.next((h, l, c));
+                            wt1_vals.push(wt1);
+                            wt2_vals.push(wt2);
+                        }
+
+                        let wt1_series = Series::new("wt1".into(), wt1_vals);
+                        let wt2_series = Series::new("wt2".into(), wt2_vals);
+
+                        let out = StructChunked::from_series(
+                            "wavetrend_output".into(),
+                            s.len(),
+                            [wt1_series, wt2_series].iter(),
+                        )?;
+                        Ok(Some(Column::from(out.into_series())))
+                    },
+                    GetOutput::from_type(DataType::Struct(vec![
+                        Field::new("wt1".into(), DataType::Float64),
+                        Field::new("wt2".into(), DataType::Float64),
+                    ])),
+                )
+                .alias("wavetrend_data")])
+    }
+
+    pub fn tema(self, name: &str, period: usize) -> LazyFrame {
+        let name = name.to_string();
+        self.0.clone().with_columns([col(&name)
+            .map(
+                move |s| {
+                    let ca = s.f64()?;
+                    let mut tema = firequant_core::TEMA::new(period);
+                    let mut values = Vec::with_capacity(s.len());
+
+                    for i in 0..s.len() {
+                        let val = ca.get(i).unwrap_or(0.0);
+                        values.push(tema.next(val));
+                    }
+
+                    Ok(Some(Column::from(Series::new("tema".into(), values))))
+                },
+                GetOutput::from_type(DataType::Float64),
+            )
+            .alias("tema")])
+    }
+
+    pub fn zlema(self, name: &str, period: usize) -> LazyFrame {
+        let name = name.to_string();
+        self.0.clone().with_columns([col(&name)
+            .map(
+                move |s| {
+                    let ca = s.f64()?;
+                    let mut zlema = firequant_core::ZLEMA::new(period);
+                    let mut values = Vec::with_capacity(s.len());
+
+                    for i in 0..s.len() {
+                        let val = ca.get(i).unwrap_or(0.0);
+                        values.push(zlema.next(val));
+                    }
+
+                    Ok(Some(Column::from(Series::new("zlema".into(), values))))
+                },
+                GetOutput::from_type(DataType::Float64),
+            )
+            .alias("zlema")])
+    }
+
+    pub fn atr_trailing_stop(
+        self,
+        high: &str,
+        low: &str,
+        close: &str,
+        period: usize,
+        multiplier: f64,
+    ) -> LazyFrame {
+        let high = high.to_string();
+        let low = low.to_string();
+        let close = close.to_string();
+
+        self.0
+            .clone()
+            .with_columns([as_struct(vec![col(&high), col(&low), col(&close)])
+                .map(
+                    move |s| {
+                        let ca = s.struct_()?;
+                        let s_high = ca.field_by_name(&high)?;
+                        let s_low = ca.field_by_name(&low)?;
+                        let s_close = ca.field_by_name(&close)?;
+
+                        let high = s_high.f64()?;
+                        let low = s_low.f64()?;
+                        let close = s_close.f64()?;
+
+                        let mut atr_ts = firequant_core::ATRTrailingStop::new(period, multiplier);
+                        let mut stops = Vec::with_capacity(s.len());
+                        let mut directions = Vec::with_capacity(s.len());
+
+                        for i in 0..s.len() {
+                            let h = high.get(i).unwrap_or(0.0);
+                            let l = low.get(i).unwrap_or(0.0);
+                            let c = close.get(i).unwrap_or(0.0);
+                            let (stop, dir) = atr_ts.next((h, l, c));
+                            stops.push(stop);
+                            directions.push(dir as f64);
+                        }
+
+                        let stop_series = Series::new("stop".into(), stops);
+                        let dir_series = Series::new("direction".into(), directions);
+
+                        let out = StructChunked::from_series(
+                            "atr_ts_output".into(),
+                            s.len(),
+                            [stop_series, dir_series].iter(),
+                        )?;
+                        Ok(Some(Column::from(out.into_series())))
+                    },
+                    GetOutput::from_type(DataType::Struct(vec![
+                        Field::new("stop".into(), DataType::Float64),
+                        Field::new("direction".into(), DataType::Float64),
+                    ])),
+                )
+                .alias("atr_ts_data")])
+    }
+
+    pub fn pivot_points(self, high: &str, low: &str, close: &str) -> LazyFrame {
+        let high = high.to_string();
+        let low = low.to_string();
+        let close = close.to_string();
+
+        self.0
+            .clone()
+            .with_columns([as_struct(vec![col(&high), col(&low), col(&close)])
+                .map(
+                    move |s| {
+                        let ca = s.struct_()?;
+                        let s_high = ca.field_by_name(&high)?;
+                        let s_low = ca.field_by_name(&low)?;
+                        let s_close = ca.field_by_name(&close)?;
+
+                        let high = s_high.f64()?;
+                        let low = s_low.f64()?;
+                        let close = s_close.f64()?;
+
+                        let mut pivot = firequant_core::PivotPoints::new();
+                        let mut p_vals = Vec::with_capacity(s.len());
+                        let mut r1_vals = Vec::with_capacity(s.len());
+                        let mut s1_vals = Vec::with_capacity(s.len());
+                        let mut r2_vals = Vec::with_capacity(s.len());
+                        let mut s2_vals = Vec::with_capacity(s.len());
+
+                        for i in 0..s.len() {
+                            let h = high.get(i).unwrap_or(0.0);
+                            let l = low.get(i).unwrap_or(0.0);
+                            let c = close.get(i).unwrap_or(0.0);
+                            let (p, r1, s1, r2, s2) = pivot.next((h, l, c));
+                            p_vals.push(p);
+                            r1_vals.push(r1);
+                            s1_vals.push(s1);
+                            r2_vals.push(r2);
+                            s2_vals.push(s2);
+                        }
+
+                        let p_series = Series::new("p".into(), p_vals);
+                        let r1_series = Series::new("r1".into(), r1_vals);
+                        let s1_series = Series::new("s1".into(), s1_vals);
+                        let r2_series = Series::new("r2".into(), r2_vals);
+                        let s2_series = Series::new("s2".into(), s2_vals);
+
+                        let out = StructChunked::from_series(
+                            "pivot_output".into(),
+                            s.len(),
+                            [p_series, r1_series, s1_series, r2_series, s2_series].iter(),
+                        )?;
+                        Ok(Some(Column::from(out.into_series())))
+                    },
+                    GetOutput::from_type(DataType::Struct(vec![
+                        Field::new("p".into(), DataType::Float64),
+                        Field::new("r1".into(), DataType::Float64),
+                        Field::new("s1".into(), DataType::Float64),
+                        Field::new("r2".into(), DataType::Float64),
+                        Field::new("s2".into(), DataType::Float64),
+                    ])),
+                )
+                .alias("pivot_points_data")])
+    }
+
+    pub fn bill_williams_fractals(self, high: &str, low: &str) -> LazyFrame {
+        let high = high.to_string();
+        let low = low.to_string();
+
+        self.0
+            .clone()
+            .with_columns([as_struct(vec![col(&high), col(&low)])
+                .map(
+                    move |s| {
+                        let ca = s.struct_()?;
+                        let s_high = ca.field_by_name(&high)?;
+                        let s_low = ca.field_by_name(&low)?;
+
+                        let high = s_high.f64()?;
+                        let low = s_low.f64()?;
+
+                        let mut fractals = firequant_core::BillWilliamsFractals::new();
+                        let mut bearish_vals = Vec::with_capacity(s.len());
+                        let mut bullish_vals = Vec::with_capacity(s.len());
+
+                        for i in 0..s.len() {
+                            let h = high.get(i).unwrap_or(0.0);
+                            let l = low.get(i).unwrap_or(0.0);
+                            let (bear, bull) = fractals.next((h, l));
+                            bearish_vals.push(bear);
+                            bullish_vals.push(bull);
+                        }
+
+                        let bearish_series = Series::new("bearish".into(), bearish_vals);
+                        let bullish_series = Series::new("bullish".into(), bullish_vals);
+
+                        let out = StructChunked::from_series(
+                            "fractals_output".into(),
+                            s.len(),
+                            [bearish_series, bullish_series].iter(),
+                        )?;
+                        Ok(Some(Column::from(out.into_series())))
+                    },
+                    GetOutput::from_type(DataType::Struct(vec![
+                        Field::new("bearish".into(), DataType::Boolean),
+                        Field::new("bullish".into(), DataType::Boolean),
+                    ])),
+                )
+                .alias("fractals_data")])
+    }
+
+    /// Market Structure (swings + confirmed BOS flips) Polars accessor.
+    /// Returns a Struct column "market_structure" with rich per-bar state + flip metadata:
+    ///   bias (0=Neutral,1=Bullish,2=Bearish), last_*_price/bar (0/NaN if none),
+    ///   has_flip + flip_* fields (only meaningful when has_flip=true — these are the events),
+    ///   swing_depth, bar_index.
+    ///
+    /// This directly emits the foundation for the standardized PAEvent system:
+    /// - Use core `extract_pa_events(&state)` (or Python equivalent on the struct fields) to obtain
+    ///   typed `PAEvent` / `PAEventKind::MarketStructureFlip` carrying strength, confidence=1.0, bar etc.
+    /// - Filter/explode for events: `.filter(col("market_structure").struct_().field_by_name("has_flip"))`.
+    /// - Rich meta (structure_strength etc) drives backtester sizing/attribution
+    ///   and ML confluence (feature_values/regime_at_event slots filled by join).
+    ///
+    /// Delegates to firequant_core::MarketStructure (Next<(f64,f64)> -> MarketStructureState + PAEvent adapters).
+    /// Primary Polars surface for Part 21 PA foundation + rich event standardization.
+    ///
+    /// Matches project patterns (see fractals, supertrend, features.rs cyber_cycle).
+    ///
+    /// Sources: market_structure.rs (MQL5 Part 21 https://www.mql5.com/en/articles/17891 + 66/69 lessons).
+    pub fn market_structure(self, high: &str, low: &str, swing_strength: usize) -> LazyFrame {
+        let high_str = high.to_string();
+        let low_str = low.to_string();
+        let strength = swing_strength;
+
+        self.0
+            .clone()
+            .with_columns([as_struct(vec![col(&high_str), col(&low_str)])
+                .map(
+                    move |s| {
+                        let ca = s.struct_()?;
+                        let s_h = ca.field_by_name(&high_str)?;
+                        let s_l = ca.field_by_name(&low_str)?;
+                        let highs = s_h.f64()?;
+                        let lows = s_l.f64()?;
+
+                        let mut ms = firequant_core::MarketStructure::new(strength);
+                        let n = s.len();
+
+                        let mut bias_vals: Vec<u32> = Vec::with_capacity(n);
+                        let mut lh_p: Vec<f64> = Vec::with_capacity(n);
+                        let mut lh_b: Vec<u64> = Vec::with_capacity(n);
+                        let mut ll_p: Vec<f64> = Vec::with_capacity(n);
+                        let mut ll_b: Vec<u64> = Vec::with_capacity(n);
+                        let mut has_f: Vec<bool> = Vec::with_capacity(n);
+                        let mut f_bear: Vec<bool> = Vec::with_capacity(n);
+                        let mut f_p: Vec<f64> = Vec::with_capacity(n);
+                        let mut f_ba: Vec<u64> = Vec::with_capacity(n);
+                        let mut f_str: Vec<u32> = Vec::with_capacity(n);
+                        let mut depths: Vec<u32> = Vec::with_capacity(n);
+                        let mut bars: Vec<u64> = Vec::with_capacity(n);
+
+                        for i in 0..n {
+                            let h = highs.get(i).unwrap_or(f64::NAN);
+                            let l = lows.get(i).unwrap_or(f64::NAN);
+                            // Guard ordering
+                            let hh = if h.is_nan() || l.is_nan() {
+                                f64::NAN
+                            } else {
+                                h.max(l)
+                            };
+                            let ll = if h.is_nan() || l.is_nan() {
+                                f64::NAN
+                            } else {
+                                l.min(h)
+                            };
+                            let state = ms.next((hh, ll));
+
+                            let b = match state.bias {
+                                firequant_core::Bias::Neutral => 0u32,
+                                firequant_core::Bias::Bullish => 1,
+                                firequant_core::Bias::Bearish => 2,
+                            };
+                            bias_vals.push(b);
+
+                            match &state.last_swing_high {
+                                Some(sh) => {
+                                    lh_p.push(sh.price);
+                                    lh_b.push(sh.bar as u64);
+                                }
+                                None => {
+                                    lh_p.push(f64::NAN);
+                                    lh_b.push(0);
+                                }
+                            }
+                            match &state.last_swing_low {
+                                Some(sl) => {
+                                    ll_p.push(sl.price);
+                                    ll_b.push(sl.bar as u64);
+                                }
+                                None => {
+                                    ll_p.push(f64::NAN);
+                                    ll_b.push(0);
+                                }
+                            }
+
+                            if let Some(f) = &state.current_flip {
+                                has_f.push(true);
+                                f_bear.push(f.is_bearish);
+                                f_p.push(f.price);
+                                f_ba.push(f.bar as u64);
+                                f_str.push(f.structure_strength);
+                            } else {
+                                has_f.push(false);
+                                f_bear.push(false);
+                                f_p.push(f64::NAN);
+                                f_ba.push(0);
+                                f_str.push(0);
+                            }
+
+                            depths.push(state.swing_depth_used as u32);
+                            bars.push(state.bar_index as u64);
+                        }
+
+                        let s_bias = Series::new("bias".into(), bias_vals);
+                        let s_lhp = Series::new("last_high_price".into(), lh_p);
+                        let s_lhb = Series::new("last_high_bar".into(), lh_b);
+                        let s_llp = Series::new("last_low_price".into(), ll_p);
+                        let s_llb = Series::new("last_low_bar".into(), ll_b);
+                        let s_hasf = Series::new("has_flip".into(), has_f);
+                        let s_fb = Series::new("flip_bearish".into(), f_bear);
+                        let s_fp = Series::new("flip_price".into(), f_p);
+                        let s_fba = Series::new("flip_bar".into(), f_ba);
+                        let s_fstr = Series::new("flip_strength".into(), f_str);
+                        let s_dep = Series::new("swing_depth".into(), depths);
+                        let s_bar = Series::new("bar_index".into(), bars);
+
+                        let struct_series = StructChunked::from_series(
+                            "market_structure_result".into(),
+                            s.len(),
+                            [
+                                s_bias, s_lhp, s_lhb, s_llp, s_llb, s_hasf, s_fb, s_fp, s_fba,
+                                s_fstr, s_dep, s_bar,
+                            ]
+                            .iter(),
+                        )?;
+                        Ok(Some(Column::from(struct_series.into_series())))
+                    },
+                    GetOutput::from_type(DataType::Struct(vec![
+                        Field::new("bias".into(), DataType::UInt32),
+                        Field::new("last_high_price".into(), DataType::Float64),
+                        Field::new("last_high_bar".into(), DataType::UInt64),
+                        Field::new("last_low_price".into(), DataType::Float64),
+                        Field::new("last_low_bar".into(), DataType::UInt64),
+                        Field::new("has_flip".into(), DataType::Boolean),
+                        Field::new("flip_bearish".into(), DataType::Boolean),
+                        Field::new("flip_price".into(), DataType::Float64),
+                        Field::new("flip_bar".into(), DataType::UInt64),
+                        Field::new("flip_strength".into(), DataType::UInt32),
+                        Field::new("swing_depth".into(), DataType::UInt32),
+                        Field::new("bar_index".into(), DataType::UInt64),
+                    ])),
+                )
+                .alias("market_structure")])
+    }
+
+    /// Geometric Pattern Scanner (Flags + H&S) Polars accessor, built on the MarketStructure foundation.
+    /// Returns a Struct column "geometric_patterns" containing:
+    ///   flag: Struct(id, is_bull, pole_length, pole_length_atr, breakout_confirmed, breakout_price)
+    ///   hs:   Struct(id, is_bearish, height, height_atr, score, breakout_confirmed)
+    /// (id==0 means no detection on that bar).
+    ///
+    /// Delegates to firequant_core::GeometricPatternScanner (Part 69 flag + Part 66 H&S rules).
+    /// Emits rich metadata (`pole_length_atr`, `score`, `breakout_confirmed`) for sizing and filters.
+    pub fn geometric_patterns(self, high: &str, low: &str, swing_strength: usize) -> LazyFrame {
+        let high_str = high.to_string();
+        let low_str = low.to_string();
+        let strength = swing_strength;
+
+        self.0
+            .clone()
+            .with_columns([as_struct(vec![col(&high_str), col(&low_str)])
+                .map(
+                    move |s| {
+                        let ca = s.struct_()?;
+                        let s_h = ca.field_by_name(&high_str)?;
+                        let s_l = ca.field_by_name(&low_str)?;
+                        let highs = s_h.f64()?;
+                        let lows = s_l.f64()?;
+
+                        let mut scanner = firequant_core::GeometricPatternScanner::new(strength);
+                        let n = s.len();
+
+                        let mut flag_ids: Vec<u32> = Vec::with_capacity(n);
+                        let mut flag_is_bull: Vec<bool> = Vec::with_capacity(n);
+                        let mut flag_pole_len: Vec<f64> = Vec::with_capacity(n);
+                        let mut flag_pole_atr: Vec<f64> = Vec::with_capacity(n);
+                        let mut flag_breakout: Vec<bool> = Vec::with_capacity(n);
+                        let mut flag_bp: Vec<f64> = Vec::with_capacity(n);
+
+                        let mut hs_ids: Vec<u32> = Vec::with_capacity(n);
+                        let mut hs_bear: Vec<bool> = Vec::with_capacity(n);
+                        let mut hs_height: Vec<f64> = Vec::with_capacity(n);
+                        let mut hs_height_atr: Vec<f64> = Vec::with_capacity(n);
+                        let mut hs_score: Vec<f64> = Vec::with_capacity(n);
+                        let mut hs_breakout: Vec<bool> = Vec::with_capacity(n);
+
+                        for i in 0..n {
+                            let h = highs.get(i).unwrap_or(f64::NAN);
+                            let l = lows.get(i).unwrap_or(f64::NAN);
+                            let hh = if h.is_nan() || l.is_nan() {
+                                f64::NAN
+                            } else {
+                                h.max(l)
+                            };
+                            let ll = if h.is_nan() || l.is_nan() {
+                                f64::NAN
+                            } else {
+                                l.min(h)
+                            };
+                            let (_state, flag, hs) = scanner.next((hh, ll));
+
+                            if let Some(f) = flag {
+                                flag_ids.push(f.id);
+                                flag_is_bull.push(f.is_bull);
+                                flag_pole_len.push(f.pole_length);
+                                flag_pole_atr.push(f.pole_length_atr);
+                                flag_breakout.push(f.breakout_confirmed);
+                                flag_bp.push(f.breakout_price);
+                            } else {
+                                flag_ids.push(0);
+                                flag_is_bull.push(false);
+                                flag_pole_len.push(f64::NAN);
+                                flag_pole_atr.push(f64::NAN);
+                                flag_breakout.push(false);
+                                flag_bp.push(f64::NAN);
+                            }
+
+                            if let Some(hp) = hs {
+                                hs_ids.push(hp.id);
+                                hs_bear.push(hp.is_bearish);
+                                hs_height.push(hp.height);
+                                hs_height_atr.push(hp.height_atr);
+                                hs_score.push(hp.score);
+                                hs_breakout.push(hp.breakout_confirmed);
+                            } else {
+                                hs_ids.push(0);
+                                hs_bear.push(false);
+                                hs_height.push(f64::NAN);
+                                hs_height_atr.push(f64::NAN);
+                                hs_score.push(f64::NAN);
+                                hs_breakout.push(false);
+                            }
+                        }
+
+                        let s_fid = Series::new("id".into(), flag_ids);
+                        let s_fbull = Series::new("is_bull".into(), flag_is_bull);
+                        let s_fplen = Series::new("pole_length".into(), flag_pole_len);
+                        let s_fpatr = Series::new("pole_length_atr".into(), flag_pole_atr);
+                        let s_fbo = Series::new("breakout_confirmed".into(), flag_breakout);
+                        let s_fbp = Series::new("breakout_price".into(), flag_bp);
+
+                        let flag_struct = StructChunked::from_series(
+                            "flag".into(),
+                            n,
+                            [s_fid, s_fbull, s_fplen, s_fpatr, s_fbo, s_fbp].iter(),
+                        )?;
+
+                        let s_hid = Series::new("id".into(), hs_ids);
+                        let s_hbear = Series::new("is_bearish".into(), hs_bear);
+                        let s_hh = Series::new("height".into(), hs_height);
+                        let s_hhatr = Series::new("height_atr".into(), hs_height_atr);
+                        let s_hsc = Series::new("score".into(), hs_score);
+                        let s_hbo = Series::new("breakout_confirmed".into(), hs_breakout);
+
+                        let hs_struct = StructChunked::from_series(
+                            "hs".into(),
+                            n,
+                            [s_hid, s_hbear, s_hh, s_hhatr, s_hsc, s_hbo].iter(),
+                        )?;
+
+                        let combined = StructChunked::from_series(
+                            "geo_patterns".into(),
+                            n,
+                            [flag_struct.into_series(), hs_struct.into_series()].iter(),
+                        )?;
+                        Ok(Some(Column::from(combined.into_series())))
+                    },
+                    GetOutput::from_type(DataType::Struct(vec![
+                        Field::new(
+                            "flag".into(),
+                            DataType::Struct(vec![
+                                Field::new("id".into(), DataType::UInt32),
+                                Field::new("is_bull".into(), DataType::Boolean),
+                                Field::new("pole_length".into(), DataType::Float64),
+                                Field::new("pole_length_atr".into(), DataType::Float64),
+                                Field::new("breakout_confirmed".into(), DataType::Boolean),
+                                Field::new("breakout_price".into(), DataType::Float64),
+                            ]),
+                        ),
+                        Field::new(
+                            "hs".into(),
+                            DataType::Struct(vec![
+                                Field::new("id".into(), DataType::UInt32),
+                                Field::new("is_bearish".into(), DataType::Boolean),
+                                Field::new("height".into(), DataType::Float64),
+                                Field::new("height_atr".into(), DataType::Float64),
+                                Field::new("score".into(), DataType::Float64),
+                                Field::new("breakout_confirmed".into(), DataType::Boolean),
+                            ]),
+                        ),
+                    ])),
+                )
+                .alias("geometric_patterns")])
+    }
+
+    /// S/R Interaction Monitor (MQL5 Part 67) Polars accessor.
+    /// Returns struct column "sr_monitor" with per-bar structure summary + first interaction (if any).
+    /// Use `interaction_count > 0` to filter event bars; join with regimes/ML features for confluence.
+    pub fn sr_monitor(
+        self,
+        high: &str,
+        low: &str,
+        close: &str,
+        swing_strength: usize,
+        touch_tolerance: f64,
+        approach_zone: f64,
+    ) -> LazyFrame {
+        let high_str = high.to_string();
+        let low_str = low.to_string();
+        let close_str = close.to_string();
+        let strength = swing_strength;
+
+        self.0.clone().with_columns([as_struct(vec![
+            col(&high_str),
+            col(&low_str),
+            col(&close_str),
+        ])
+        .map(
+            move |s| {
+                let ca = s.struct_()?;
+                let s_h = ca.field_by_name(&high_str)?;
+                let s_l = ca.field_by_name(&low_str)?;
+                let s_c = ca.field_by_name(&close_str)?;
+                let highs = s_h.f64()?;
+                let lows = s_l.f64()?;
+                let closes = s_c.f64()?;
+
+                let mut mon = firequant_core::SRInteractionMonitor::new(
+                    strength,
+                    touch_tolerance,
+                    approach_zone,
+                );
+                let n = s.len();
+
+                let mut bias_vals: Vec<u32> = Vec::with_capacity(n);
+                let mut active_levels: Vec<u32> = Vec::with_capacity(n);
+                let mut interaction_counts: Vec<u32> = Vec::with_capacity(n);
+                let mut has_interaction: Vec<bool> = Vec::with_capacity(n);
+                let mut interaction_types: Vec<u32> = Vec::with_capacity(n);
+                let mut level_prices: Vec<f64> = Vec::with_capacity(n);
+                let mut is_support_vals: Vec<bool> = Vec::with_capacity(n);
+                let mut strengths: Vec<f64> = Vec::with_capacity(n);
+                let mut distances: Vec<f64> = Vec::with_capacity(n);
+                let mut atr_vals: Vec<f64> = Vec::with_capacity(n);
+
+                for i in 0..n {
+                    let h = highs.get(i).unwrap_or(f64::NAN);
+                    let l = lows.get(i).unwrap_or(f64::NAN);
+                    let c = closes.get(i).unwrap_or(f64::NAN);
+                    let hh = if h.is_nan() || l.is_nan() {
+                        f64::NAN
+                    } else {
+                        h.max(l)
+                    };
+                    let ll = if h.is_nan() || l.is_nan() {
+                        f64::NAN
+                    } else {
+                        l.min(h)
+                    };
+                    let cc = if c.is_nan() {
+                        (hh + ll) / 2.0
+                    } else {
+                        c.clamp(ll, hh)
+                    };
+
+                    let out = mon.next((hh, ll, cc));
+
+                    let b = match out.structure.bias {
+                        firequant_core::Bias::Neutral => 0u32,
+                        firequant_core::Bias::Bullish => 1,
+                        firequant_core::Bias::Bearish => 2,
+                    };
+                    bias_vals.push(b);
+                    active_levels.push(mon.active_level_count() as u32);
+                    interaction_counts.push(out.interactions.len() as u32);
+
+                    if let Some(first) = out.interactions.first() {
+                        has_interaction.push(true);
+                        interaction_types.push(first.interaction as u32);
+                        level_prices.push(first.level_price);
+                        is_support_vals.push(first.is_support);
+                        strengths.push(first.strength);
+                        distances.push(first.distance_at_event);
+                    } else {
+                        has_interaction.push(false);
+                        interaction_types.push(0);
+                        level_prices.push(f64::NAN);
+                        is_support_vals.push(false);
+                        strengths.push(f64::NAN);
+                        distances.push(f64::NAN);
+                    }
+                    atr_vals.push(mon.current_atr());
+                }
+
+                let struct_series = StructChunked::from_series(
+                    "sr_monitor_result".into(),
+                    n,
+                    [
+                        Series::new("bias".into(), bias_vals),
+                        Series::new("active_levels".into(), active_levels),
+                        Series::new("interaction_count".into(), interaction_counts),
+                        Series::new("has_interaction".into(), has_interaction),
+                        Series::new("interaction_type".into(), interaction_types),
+                        Series::new("level_price".into(), level_prices),
+                        Series::new("is_support".into(), is_support_vals),
+                        Series::new("strength".into(), strengths),
+                        Series::new("distance".into(), distances),
+                        Series::new("atr".into(), atr_vals),
+                    ]
+                    .iter(),
+                )?;
+                Ok(Some(Column::from(struct_series.into_series())))
+            },
+            GetOutput::from_type(DataType::Struct(vec![
+                Field::new("bias".into(), DataType::UInt32),
+                Field::new("active_levels".into(), DataType::UInt32),
+                Field::new("interaction_count".into(), DataType::UInt32),
+                Field::new("has_interaction".into(), DataType::Boolean),
+                Field::new("interaction_type".into(), DataType::UInt32),
+                Field::new("level_price".into(), DataType::Float64),
+                Field::new("is_support".into(), DataType::Boolean),
+                Field::new("strength".into(), DataType::Float64),
+                Field::new("distance".into(), DataType::Float64),
+                Field::new("atr".into(), DataType::Float64),
+            ])),
+        )
+        .alias("sr_monitor")])
+    }
+
+    pub fn ichimoku_cloud(
+        self,
+        high: &str,
+        low: &str,
+        p1: usize,
+        p2: usize,
+        p3: usize,
+    ) -> LazyFrame {
+        let high = high.to_string();
+        let low = low.to_string();
+
+        self.0
+            .clone()
+            .with_columns([as_struct(vec![col(&high), col(&low)])
+                .map(
+                    move |s| {
+                        let ca = s.struct_()?;
+                        let s_high = ca.field_by_name(&high)?;
+                        let s_low = ca.field_by_name(&low)?;
+
+                        let high = s_high.f64()?;
+                        let low = s_low.f64()?;
+
+                        let mut ic = firequant_core::IchimokuCloud::new(p1, p2, p3);
+                        let mut t_vals = Vec::with_capacity(s.len());
+                        let mut k_vals = Vec::with_capacity(s.len());
+                        let mut sa_vals = Vec::with_capacity(s.len());
+                        let mut sb_vals = Vec::with_capacity(s.len());
+
+                        for i in 0..s.len() {
+                            let h = high.get(i).unwrap_or(0.0);
+                            let l = low.get(i).unwrap_or(0.0);
+                            let (t, k, sa, sb) = ic.next((h, l));
+                            t_vals.push(t);
+                            k_vals.push(k);
+                            sa_vals.push(sa);
+                            sb_vals.push(sb);
+                        }
+
+                        let t_series = Series::new("tenkan".into(), t_vals);
+                        let k_series = Series::new("kijun".into(), k_vals);
+                        let sa_series = Series::new("senkou_a".into(), sa_vals);
+                        let sb_series = Series::new("senkou_b".into(), sb_vals);
+
+                        let out = StructChunked::from_series(
+                            "ichimoku_output".into(),
+                            s.len(),
+                            [t_series, k_series, sa_series, sb_series].iter(),
+                        )?;
+                        Ok(Some(Column::from(out.into_series())))
+                    },
+                    GetOutput::from_type(DataType::Struct(vec![
+                        Field::new("tenkan".into(), DataType::Float64),
+                        Field::new("kijun".into(), DataType::Float64),
+                        Field::new("senkou_a".into(), DataType::Float64),
+                        Field::new("senkou_b".into(), DataType::Float64),
+                    ])),
+                )
+                .alias("ichimoku_data")])
+    }
+
+    pub fn volatility_clusterer(
+        self,
+        high: &str,
+        low: &str,
+        close: &str,
+        atr_period: usize,
+        window_size: usize,
+        k: usize,
+    ) -> LazyFrame {
+        let h_str = high.to_string();
+        let l_str = low.to_string();
+        let c_str = close.to_string();
+
+        self.0
+            .clone()
+            .with_columns([as_struct(vec![col(&h_str), col(&l_str), col(&c_str)])
+                .map(
+                    move |s| {
+                        let ca = s.struct_()?;
+                        let f_h = ca.field_by_name(&h_str)?;
+                        let high = f_h.f64()?;
+                        let f_l = ca.field_by_name(&l_str)?;
+                        let low = f_l.f64()?;
+                        let f_c = ca.field_by_name(&c_str)?;
+                        let close = f_c.f64()?;
+
+                        let mut clusterer =
+                        firequant_core::regimes::volatility_clustering::VolatilityClusterer::new(
+                            atr_period,
+                            window_size,
+                            k,
+                        );
+                        let mut values = Vec::with_capacity(s.len());
+
+                        for i in 0..s.len() {
+                            let h = high.get(i).unwrap_or(f64::NAN);
+                            let l = low.get(i).unwrap_or(f64::NAN);
+                            let c = close.get(i).unwrap_or(f64::NAN);
+                            let regime = clusterer.next((h, l, c));
+                            let val = match regime {
+                                firequant_core::regimes::MarketRegime::Steady => 0u32,
+                                firequant_core::regimes::MarketRegime::Bull => 1,
+                                firequant_core::regimes::MarketRegime::Bear => 2,
+                                firequant_core::regimes::MarketRegime::Crisis => 3,
+                                firequant_core::regimes::MarketRegime::Cluster(c) => 4 + (c as u32),
+                            };
+                            values.push(val);
+                        }
+
+                        Ok(Some(Column::from(Series::new(
+                            "volatility_regime".into(),
+                            values,
+                        ))))
+                    },
+                    GetOutput::from_type(DataType::UInt32),
+                )
+                .alias("volatility_regime")])
+    }
+
+    pub fn hmm_bull_bear(self, name: &str) -> LazyFrame {
+        let name_str = name.to_string();
+        self.0.clone().with_columns([col(&name_str)
+            .map(
+                move |s| {
+                    let ca = s.f64()?;
+                    let mut hmm = firequant_core::regimes::hmm::HMM::bull_bear();
+                    let mut values = Vec::with_capacity(s.len());
+
+                    for i in 0..s.len() {
+                        let val = ca.get(i).unwrap_or(f64::NAN);
+                        let regime = hmm.next(val);
+                        let out = match regime {
+                            firequant_core::regimes::MarketRegime::Bull => 1u32,
+                            firequant_core::regimes::MarketRegime::Bear => 2,
+                            _ => 0,
+                        };
+                        values.push(out);
+                    }
+
+                    Ok(Some(Column::from(Series::new("hmm_regime".into(), values))))
+                },
+                GetOutput::from_type(DataType::UInt32),
+            )
+            .alias("hmm_regime")])
+    }
+
+    /// Fit a generic HMM (EM) on a full observation column and decode regimes.
+    ///
+    /// Returns struct column `hmm_fit_data` with:
+    /// - `hmm_fit_state` (UInt32): global Viterbi state index (0-based)
+    /// - `hmm_fit_smooth_probs` (List[Float64]): smoothed state probabilities per bar
+    ///
+    /// Set `fit_lambdas` to enable lambda (ecld) emissions with per-state λ MLE (ldhmm parity).
+    ///
+    /// Non-finite observations are skipped for fitting/decoding; output rows at those
+    /// indices receive state `0` and uniform probabilities.
+    pub fn hmm_fit(
+        self,
+        name: &str,
+        n_states: usize,
+        max_iter: usize,
+        fit_lambdas: bool,
+    ) -> LazyFrame {
+        let name_str = name.to_string();
+        self.0.clone().with_columns([col(&name_str)
+            .map(
+                move |s| {
+                    use firequant_core::regimes::gaussian_hmm::{
+                        EmissionFamily, GaussianHmmFitConfig, fit_em,
+                    };
+
+                    let ca = s.f64()?;
+                    let n = s.len();
+                    let mut obs = Vec::new();
+                    let mut index_map = Vec::new();
+                    for i in 0..n {
+                        if let Some(v) = ca.get(i)
+                            && v.is_finite()
+                        {
+                            obs.push(v);
+                            index_map.push(i);
+                        }
+                    }
+
+                    let m = n_states.max(2);
+                    let uniform = 1.0 / m as f64;
+                    let mut states = vec![0u32; n];
+                    let mut probs_rows = vec![vec![uniform; m]; n];
+
+                    if obs.len() > m {
+                        let config = GaussianHmmFitConfig {
+                            n_states: m,
+                            max_iter: max_iter.max(1),
+                            emission_family: if fit_lambdas {
+                                EmissionFamily::Lambda
+                            } else {
+                                EmissionFamily::Gaussian
+                            },
+                            fit_lambdas,
+                            ..Default::default()
+                        };
+                        if let Ok(fit) = fit_em(&obs, &config)
+                            && let Ok(decode) = fit.params.decode(&obs)
+                        {
+                            for (j, &row_idx) in index_map.iter().enumerate() {
+                                states[row_idx] = decode.viterbi_path[j] as u32;
+                                for st in 0..m {
+                                    probs_rows[row_idx][st] = decode.smooth_probs[st][j];
+                                }
+                            }
+                        }
+                    }
+
+                    let mut prob_builder = ListPrimitiveChunkedBuilder::<Float64Type>::new(
+                        "hmm_fit_smooth_probs".into(),
+                        n,
+                        n * m,
+                        DataType::Float64,
+                    );
+                    for row in &probs_rows {
+                        prob_builder.append_slice(row);
+                    }
+
+                    let state_series = Series::new("hmm_fit_state".into(), states);
+                    let prob_series = prob_builder.finish().into_series();
+                    let out = StructChunked::from_series(
+                        "hmm_fit_data".into(),
+                        n,
+                        [state_series, prob_series].iter(),
+                    )?;
+                    Ok(Some(Column::from(out.into_series())))
+                },
+                GetOutput::from_type(DataType::Struct(vec![
+                    Field::new("hmm_fit_state".into(), DataType::UInt32),
+                    Field::new(
+                        "hmm_fit_smooth_probs".into(),
+                        DataType::List(Box::new(DataType::Float64)),
+                    ),
+                ])),
+            )
+            .alias("hmm_fit_data")])
+    }
+
+    /// Pseudo-residuals from a fitted HMM (ldhmm `pseudo_residuals`).
+    pub fn hmm_pseudo_residuals(
+        self,
+        name: &str,
+        n_states: usize,
+        max_iter: usize,
+        fit_lambdas: bool,
+    ) -> LazyFrame {
+        let name_str = name.to_string();
+        self.0.clone().with_columns([col(&name_str)
+            .map(
+                move |s| {
+                    use firequant_core::regimes::gaussian_hmm::{
+                        EmissionFamily, GaussianHmmFitConfig, fit_em,
+                    };
+                    use firequant_core::regimes::hmm_forecast::pseudo_residuals;
+
+                    let ca = s.f64()?;
+                    let n = s.len();
+                    let mut values = vec![f64::NAN; n];
+                    let mut obs = Vec::new();
+                    let mut index_map = Vec::new();
+                    for i in 0..n {
+                        if let Some(v) = ca.get(i)
+                            && v.is_finite()
+                        {
+                            obs.push(v);
+                            index_map.push(i);
+                        }
+                    }
+                    let m = n_states.max(2);
+                    if obs.len() > m {
+                        let config = GaussianHmmFitConfig {
+                            n_states: m,
+                            max_iter: max_iter.max(1),
+                            emission_family: if fit_lambdas {
+                                EmissionFamily::Lambda
+                            } else {
+                                EmissionFamily::Gaussian
+                            },
+                            fit_lambdas,
+                            ..Default::default()
+                        };
+                        if let Ok(fit) = fit_em(&obs, &config)
+                            && let Ok(decode) = fit.params.decode(&obs)
+                            && let Ok(residuals) =
+                                pseudo_residuals(&fit.params, &decode.forward_filter, &obs)
+                        {
+                            for (j, &row_idx) in index_map.iter().enumerate() {
+                                values[row_idx] = residuals[j];
+                            }
+                        }
+                    }
+                    Ok(Some(Column::from(Series::new(
+                        "hmm_pseudo_residual".into(),
+                        values,
+                    ))))
+                },
+                GetOutput::from_type(DataType::Float64),
+            )
+            .alias("hmm_pseudo_residual")])
+    }
+
+    /// Per-bar weighted decode statistics from a fitted HMM (ldhmm `decode_stats_history`).
+    pub fn hmm_decode_stats(
+        self,
+        name: &str,
+        n_states: usize,
+        max_iter: usize,
+        fit_lambdas: bool,
+    ) -> LazyFrame {
+        let name_str = name.to_string();
+        self.0.clone().with_columns([col(&name_str)
+            .map(
+                move |s| {
+                    use firequant_core::regimes::gaussian_hmm::{
+                        EmissionFamily, GaussianHmmFitConfig, fit_em,
+                    };
+                    use firequant_core::regimes::hmm_forecast::decode_stats_history;
+
+                    let ca = s.f64()?;
+                    let n = s.len();
+                    let mut means = vec![f64::NAN; n];
+                    let mut vols = vec![f64::NAN; n];
+                    let mut lambdas = vec![f64::NAN; n];
+                    let mut obs = Vec::new();
+                    let mut index_map = Vec::new();
+                    for i in 0..n {
+                        if let Some(v) = ca.get(i)
+                            && v.is_finite()
+                        {
+                            obs.push(v);
+                            index_map.push(i);
+                        }
+                    }
+                    let m = n_states.max(2);
+                    if obs.len() > m {
+                        let config = GaussianHmmFitConfig {
+                            n_states: m,
+                            max_iter: max_iter.max(1),
+                            emission_family: if fit_lambdas {
+                                EmissionFamily::Lambda
+                            } else {
+                                EmissionFamily::Gaussian
+                            },
+                            fit_lambdas,
+                            ..Default::default()
+                        };
+                        if let Ok(fit) = fit_em(&obs, &config)
+                            && let Ok(decode) = fit.params.decode(&obs)
+                            && let Ok(stats) =
+                                decode_stats_history(&fit.params, &decode.smooth_probs)
+                        {
+                            for (j, row) in stats.iter().enumerate() {
+                                let idx = index_map[j];
+                                means[idx] = row.weighted_mean;
+                                vols[idx] = row.weighted_vol;
+                                lambdas[idx] = row.weighted_lambda;
+                            }
+                        }
+                    }
+                    let out = StructChunked::from_series(
+                        "hmm_decode_stats_data".into(),
+                        n,
+                        [
+                            Series::new("hmm_decode_weighted_mean".into(), means),
+                            Series::new("hmm_decode_weighted_vol".into(), vols),
+                            Series::new("hmm_decode_weighted_lambda".into(), lambdas),
+                        ]
+                        .iter(),
+                    )?;
+                    Ok(Some(Column::from(out.into_series())))
+                },
+                GetOutput::from_type(DataType::Struct(vec![
+                    Field::new("hmm_decode_weighted_mean".into(), DataType::Float64),
+                    Field::new("hmm_decode_weighted_vol".into(), DataType::Float64),
+                    Field::new("hmm_decode_weighted_lambda".into(), DataType::Float64),
+                ])),
+            )
+            .alias("hmm_decode_stats_data")])
+    }
+
+    /// h-step mixture volatility forecast from each bar's forward filter (ldhmm `forecast_volatility`).
+    pub fn hmm_forecast_vol(
+        self,
+        name: &str,
+        n_states: usize,
+        max_iter: usize,
+        fit_lambdas: bool,
+        horizon: usize,
+    ) -> LazyFrame {
+        let name_str = name.to_string();
+        let h = horizon.max(1);
+        self.0.clone().with_columns([col(&name_str)
+            .map(
+                move |s| {
+                    use firequant_core::regimes::gaussian_hmm::{
+                        EmissionFamily, GaussianHmmFitConfig, fit_em,
+                    };
+                    use firequant_core::regimes::hmm_forecast::forecast_volatility;
+
+                    let ca = s.f64()?;
+                    let n = s.len();
+                    let mut values = vec![f64::NAN; n];
+                    let mut obs = Vec::new();
+                    let mut index_map = Vec::new();
+                    for i in 0..n {
+                        if let Some(v) = ca.get(i)
+                            && v.is_finite()
+                        {
+                            obs.push(v);
+                            index_map.push(i);
+                        }
+                    }
+                    let m = n_states.max(2);
+                    if obs.len() > m {
+                        let config = GaussianHmmFitConfig {
+                            n_states: m,
+                            max_iter: max_iter.max(1),
+                            emission_family: if fit_lambdas {
+                                EmissionFamily::Lambda
+                            } else {
+                                EmissionFamily::Gaussian
+                            },
+                            fit_lambdas,
+                            ..Default::default()
+                        };
+                        if let Ok(fit) = fit_em(&obs, &config)
+                            && let Ok(decode) = fit.params.decode(&obs)
+                        {
+                            for (j, &row_idx) in index_map.iter().enumerate() {
+                                let probs: Vec<f64> =
+                                    (0..m).map(|st| decode.forward_filter[st][j]).collect();
+                                if let Ok(vol) = forecast_volatility(&fit.params, &probs, h) {
+                                    values[row_idx] = vol;
+                                }
+                            }
+                        }
+                    }
+                    Ok(Some(Column::from(Series::new(
+                        "hmm_forecast_vol".into(),
+                        values,
+                    ))))
+                },
+                GetOutput::from_type(DataType::Float64),
+            )
+            .alias("hmm_forecast_vol")])
+    }
+
+    pub fn pelt(self, name: &str, penalty: f64, min_dist: usize) -> LazyFrame {
+        let name_str = name.to_string();
+        self.0.clone().with_columns([col(&name_str)
+            .map(
+                move |s| {
+                    let ca = s.f64()?;
+                    let data: Vec<f64> = ca.into_iter().map(|v| v.unwrap_or(f64::NAN)).collect();
+                    let pelt = firequant_core::regimes::pelt::PELT::new(penalty, min_dist);
+                    let cps = pelt.detect(&data);
+
+                    let mut values = vec![0u32; s.len()];
+                    for cp in cps {
+                        if cp < values.len() {
+                            values[cp] = 1;
+                        }
+                    }
+
+                    Ok(Some(Column::from(Series::new(
+                        "changepoints".into(),
+                        values,
+                    ))))
+                },
+                GetOutput::from_type(DataType::UInt32),
+            )
+            .alias("changepoints")])
+    }
+
+    pub fn gmm(self, columns: &[&str], _k: usize) -> LazyFrame {
+        let cols: Vec<String> = columns.iter().map(|s| s.to_string()).collect();
+        let col_exprs: Vec<Expr> = cols.iter().map(col).collect();
+
+        self.0.clone().with_columns([as_struct(col_exprs)
+            .map(
+                move |s| {
+                    let ca = s.struct_()?;
+                    let n_rows = s.len();
+                    let n_dims = cols.len();
+
+                    let mut data = Vec::with_capacity(n_rows);
+                    for i in 0..n_rows {
+                        let mut row = Vec::with_capacity(n_dims);
+                        for c_name in &cols {
+                            let f = ca.field_by_name(c_name)?;
+                            let val = f.f64()?.get(i).unwrap_or(f64::NAN);
+                            row.push(val);
+                        }
+                        data.push(row);
+                    }
+
+                    // Placeholder GMM: requires fitting or pre-trained params.
+                    // For now, we'll use a simple default clusterer based on means.
+                    let values = vec![0u32; n_rows];
+
+                    Ok(Some(Column::from(Series::new("gmm_regime".into(), values))))
+                },
+                GetOutput::from_type(DataType::UInt32),
+            )
+            .alias("gmm_regime")])
+    }
+
+    pub fn regimes_duration_stats(self, regime_col: &str, num_states: usize) -> LazyFrame {
+        let name_str = regime_col.to_string();
+        self.0.clone().with_columns([col(&name_str)
+            .map(
+                move |s| {
+                    let ca = s.u32()?;
+                    let states: Vec<u32> = ca.into_iter().map(|v| v.unwrap_or(0)).collect();
+                    let stats =
+                        firequant_core::RegimeAnalytics::duration_stats(&states, num_states);
+
+                    // Convert stats to a Struct
+                    let mut regime_ids = Vec::new();
+                    let mut means = Vec::new();
+                    let mut medians = Vec::new();
+                    let mut stds = Vec::new();
+                    let mut maxes = Vec::new();
+                    let mut totals = Vec::new();
+
+                    for stat in stats {
+                        regime_ids.push(stat.regime_id);
+                        means.push(stat.mean_duration);
+                        medians.push(stat.median_duration);
+                        stds.push(stat.std_duration);
+                        maxes.push(stat.max_duration as u32);
+                        totals.push(stat.total_observations as u32);
+                    }
+
+                    let s_id = Series::new("regime_id".into(), regime_ids);
+                    let s_mean = Series::new("mean_duration".into(), means);
+                    let s_median = Series::new("median_duration".into(), medians);
+                    let s_std = Series::new("std_duration".into(), stds);
+                    let s_max = Series::new("max_duration".into(), maxes);
+                    let s_total = Series::new("total_observations".into(), totals);
+
+                    let struct_series = StructChunked::from_series(
+                        "duration_stats".into(),
+                        s_id.len(),
+                        [s_id, s_mean, s_median, s_std, s_max, s_total].iter(),
+                    )?;
+                    Ok(Some(Column::from(struct_series.into_series())))
+                },
+                GetOutput::from_type(DataType::Struct(vec![
+                    Field::new("regime_id".into(), DataType::UInt32),
+                    Field::new("mean_duration".into(), DataType::Float64),
+                    Field::new("median_duration".into(), DataType::Float64),
+                    Field::new("std_duration".into(), DataType::Float64),
+                    Field::new("max_duration".into(), DataType::UInt32),
+                    Field::new("total_observations".into(), DataType::UInt32),
+                ])),
+            )
+            .alias("regime_duration_stats")])
+    }
+
+    pub fn regimes_transition_matrix(self, regime_col: &str, num_states: usize) -> LazyFrame {
+        let name_str = regime_col.to_string();
+        self.0.clone().with_columns([col(&name_str)
+            .map(
+                move |s| {
+                    let ca = s.u32()?;
+                    let states: Vec<u32> = ca.into_iter().map(|v| v.unwrap_or(0)).collect();
+                    let matrix =
+                        firequant_core::RegimeAnalytics::transition_matrix(&states, num_states);
+
+                    // Return as a List of Lists (effectively a matrix)
+                    let mut builders = ListPrimitiveChunkedBuilder::<Float64Type>::new(
+                        "transition_matrix".into(),
+                        matrix.len(),
+                        matrix.len() * num_states,
+                        DataType::Float64,
+                    );
+                    for row in matrix {
+                        builders.append_slice(&row);
+                    }
+
+                    let list_ca = builders.finish();
+                    Ok(Some(Column::from(list_ca.into_series())))
+                },
+                GetOutput::from_type(DataType::List(Box::new(DataType::Float64))),
+            )
+            .alias("regime_transition_matrix")])
+    }
+
+    pub fn regimes_stability_score(self, regime_col: &str) -> LazyFrame {
+        let name_str = regime_col.to_string();
+        self.0.clone().with_columns([col(&name_str)
+            .map(
+                move |s| {
+                    let ca = s.u32()?;
+                    let states: Vec<u32> = ca.into_iter().map(|v| v.unwrap_or(0)).collect();
+                    let score = firequant_core::RegimeAnalytics::stability_score(&states);
+
+                    Ok(Some(Column::from(Series::new(
+                        "stability_score".into(),
+                        vec![score; s.len()],
+                    ))))
+                },
+                GetOutput::from_type(DataType::Float64),
+            )
+            .alias("regime_stability_score")])
+    }
+
+    pub fn regimes_next_state_prob(
+        self,
+        regime_col: &str,
+        num_states: usize,
+        steps: usize,
+    ) -> LazyFrame {
+        let name_str = regime_col.to_string();
+        self.0.clone().with_columns([col(&name_str)
+            .map(
+                move |s| {
+                    let ca = s.u32()?;
+                    let states: Vec<u32> = ca.into_iter().map(|v| v.unwrap_or(0)).collect();
+                    let matrix =
+                        firequant_core::RegimeAnalytics::transition_matrix(&states, num_states);
+
+                    let mut builders = ListPrimitiveChunkedBuilder::<Float64Type>::new(
+                        "next_state_probs".into(),
+                        s.len(),
+                        s.len() * num_states,
+                        DataType::Float64,
+                    );
+
+                    for &current in &states {
+                        let probs = firequant_core::RegimeAnalytics::forecast_state(
+                            &matrix, current, steps,
+                        );
+                        builders.append_slice(&probs);
+                    }
+
+                    let list_ca = builders.finish();
+                    Ok(Some(Column::from(list_ca.into_series())))
+                },
+                GetOutput::from_type(DataType::List(Box::new(DataType::Float64))),
+            )
+            .alias("next_state_probs")])
+    }
+
+    pub fn filter_by_regime(self, regime_col: &str, target_regime: u32) -> LazyFrame {
+        self.0
+            .clone()
+            .filter(col(regime_col).eq(lit(target_regime)))
+    }
+
+    pub fn apply_regime_strategy(
+        self,
+        regime_col: &str,
+        signal_col: &str,
+        regime_weights: std::collections::HashMap<u32, f64>,
+    ) -> LazyFrame {
+        let mut case_expr = col(signal_col);
+        for (regime, weight) in regime_weights {
+            case_expr = when(col(regime_col).eq(lit(regime)))
+                .then(col(signal_col) * lit(weight))
+                .otherwise(case_expr);
+        }
+
+        self.0
+            .clone()
+            .with_columns([case_expr.alias("regime_adjusted_signal")])
+    }
+
+    pub fn regimes_ms_garch(self, returns_col: &str) -> LazyFrame {
+        let name_str = returns_col.to_string();
+        self.0.clone().with_columns([col(&name_str)
+            .map(
+                move |s| {
+                    let ca = s.f64()?;
+                    let mut model = firequant_core::regimes::ms_garch::MSGarch::low_high_vol();
+                    let mut regimes = Vec::with_capacity(s.len());
+                    let mut vols = Vec::with_capacity(s.len());
+
+                    for i in 0..s.len() {
+                        let ret = ca.get(i).unwrap_or(0.0);
+                        let (regime, vol) = model.next(ret);
+
+                        let r_val = match regime {
+                            firequant_core::regimes::MarketRegime::Steady => 0u32,
+                            firequant_core::regimes::MarketRegime::Crisis => 1,
+                            firequant_core::regimes::MarketRegime::Bull => 2,
+                            firequant_core::regimes::MarketRegime::Bear => 3,
+                            firequant_core::regimes::MarketRegime::Cluster(c) => 4 + (c as u32),
+                        };
+                        regimes.push(r_val);
+                        vols.push(vol);
+                    }
+
+                    let s_regime = Series::new("regime".into(), regimes);
+                    let s_vol = Series::new("estimated_vol".into(), vols);
+                    let struct_series = StructChunked::from_series(
+                        "ms_garch_data".into(),
+                        s.len(),
+                        [s_regime, s_vol].iter(),
+                    )?;
+                    Ok(Some(Column::from(struct_series.into_series())))
+                },
+                GetOutput::from_type(DataType::Struct(vec![
+                    Field::new("regime".into(), DataType::UInt32),
+                    Field::new("estimated_vol".into(), DataType::Float64),
+                ])),
+            )
+            .alias("ms_garch_data")])
+    }
+
+    pub fn regimes_ensemble(self, columns: &[&str], weights: &[f64]) -> LazyFrame {
+        let cols: Vec<String> = columns.iter().map(|s| s.to_string()).collect();
+        let col_exprs: Vec<Expr> = cols.iter().map(col).collect();
+        let w_vec = weights.to_vec();
+
+        self.0.clone().with_columns([as_struct(col_exprs)
+            .map(
+                move |s| {
+                    let ca = s.struct_()?;
+                    let n_rows = s.len();
+                    let n_dims = cols.len();
+                    let ensemble =
+                        firequant_core::regimes::ensemble::RegimeEnsemble::new(w_vec.clone());
+
+                    let mut results = Vec::with_capacity(n_rows);
+                    for i in 0..n_rows {
+                        let mut row_regimes = Vec::with_capacity(n_dims);
+                        for c_name in &cols {
+                            let f = ca.field_by_name(c_name)?;
+                            let val = f.u32()?.get(i).unwrap_or(0);
+
+                            let regime = match val {
+                                0 => firequant_core::regimes::MarketRegime::Steady,
+                                1 => firequant_core::regimes::MarketRegime::Crisis,
+                                2 => firequant_core::regimes::MarketRegime::Bull,
+                                3 => firequant_core::regimes::MarketRegime::Bear,
+                                v if v >= 4 => {
+                                    firequant_core::regimes::MarketRegime::Cluster((v - 4) as u8)
+                                }
+                                _ => firequant_core::regimes::MarketRegime::Steady,
+                            };
+                            row_regimes.push(regime);
+                        }
+
+                        let consensus = ensemble.vote(&row_regimes);
+                        let out = match consensus {
+                            firequant_core::regimes::MarketRegime::Steady => 0u32,
+                            firequant_core::regimes::MarketRegime::Crisis => 1,
+                            firequant_core::regimes::MarketRegime::Bull => 2,
+                            firequant_core::regimes::MarketRegime::Bear => 3,
+                            firequant_core::regimes::MarketRegime::Cluster(c) => 4 + (c as u32),
+                        };
+                        results.push(out);
+                    }
+
+                    Ok(Some(Column::from(Series::new(
+                        "ensemble_regime".into(),
+                        results,
+                    ))))
+                },
+                GetOutput::from_type(DataType::UInt32),
+            )
+            .alias("ensemble_regime")])
+    }
+
+    pub fn regimes_tar(self, signal_col: &str, thresholds: Vec<f64>) -> LazyFrame {
+        let name_str = signal_col.to_string();
+        self.0.clone().with_columns([col(&name_str)
+            .map(
+                move |s| {
+                    let ca = s.f64()?;
+                    let mut model = firequant_core::regimes::tar::TAR::multi(thresholds.clone());
+                    let mut results = Vec::with_capacity(s.len());
+
+                    for i in 0..s.len() {
+                        let val = ca.get(i).unwrap_or(f64::NAN);
+                        let regime = model.next(val);
+                        let out = match regime {
+                            firequant_core::regimes::MarketRegime::Steady => 0u32,
+                            firequant_core::regimes::MarketRegime::Crisis => 1,
+                            firequant_core::regimes::MarketRegime::Bull => 2,
+                            firequant_core::regimes::MarketRegime::Bear => 3,
+                            firequant_core::regimes::MarketRegime::Cluster(c) => 4 + (c as u32),
+                        };
+                        results.push(out);
+                    }
+
+                    Ok(Some(Column::from(Series::new(
+                        "tar_regime".into(),
+                        results,
+                    ))))
+                },
+                GetOutput::from_type(DataType::UInt32),
+            )
+            .alias("tar_regime")])
+    }
+
+    pub fn regimes_hsmm(self, name: &str) -> LazyFrame {
+        let name_str = name.to_string();
+        self.0.clone().with_columns([col(&name_str)
+            .map(
+                move |s| {
+                    let ca = s.f64()?;
+                    // Default 2-state HSMM: Poisson durations (5 days Bull, 2 days Bear)
+                    let mut model = firequant_core::regimes::hsmm::HSMM::new(
+                        vec![vec![0.0, 1.0], vec![1.0, 0.0]], // Always switch
+                        vec![0.001, -0.002],
+                        vec![0.01, 0.02],
+                        vec![
+                            firequant_core::regimes::hsmm::DurationDistribution::Poisson {
+                                lambda: 5.0,
+                            },
+                            firequant_core::regimes::hsmm::DurationDistribution::Poisson {
+                                lambda: 2.0,
+                            },
+                        ],
+                    );
+                    let mut values = Vec::with_capacity(s.len());
+
+                    for i in 0..s.len() {
+                        let val = ca.get(i).unwrap_or(f64::NAN);
+                        let regime = model.next(val);
+                        let out = match regime {
+                            firequant_core::regimes::MarketRegime::Steady => 0u32,
+                            firequant_core::regimes::MarketRegime::Crisis => 1,
+                            _ => 2, // Map others
+                        };
+                        values.push(out);
+                    }
+
+                    Ok(Some(Column::from(Series::new(
+                        "hsmm_regime".into(),
+                        values,
+                    ))))
+                },
+                GetOutput::from_type(DataType::UInt32),
+            )
+            .alias("hsmm_regime")])
+    }
+
+    pub fn regimes_hmm_gas(self, name: &str) -> LazyFrame {
+        let name_str = name.to_string();
+        self.0.clone().with_columns([col(&name_str)
+            .map(
+                move |s| {
+                    let ca = s.f64()?;
+                    let mut model = firequant_core::regimes::hmm_gas::HMMGAS::new(
+                        [0.1, 0.05, 0.9], // p11 params
+                        [0.1, 0.05, 0.9], // p22 params
+                        [0.001, -0.002],
+                        [0.01, 0.02],
+                    );
+                    let mut values = Vec::with_capacity(s.len());
+
+                    for i in 0..s.len() {
+                        let val = ca.get(i).unwrap_or(f64::NAN);
+                        let regime = model.next(val);
+                        let out = match regime {
+                            firequant_core::regimes::MarketRegime::Steady => 0u32,
+                            firequant_core::regimes::MarketRegime::Crisis => 1,
+                            _ => 2,
+                        };
+                        values.push(out);
+                    }
+
+                    Ok(Some(Column::from(Series::new(
+                        "hmm_gas_regime".into(),
+                        values,
+                    ))))
+                },
+                GetOutput::from_type(DataType::UInt32),
+            )
+            .alias("hmm_gas_regime")])
+    }
+
+    pub fn regimes_conditioned_metrics(
+        self,
+        returns_col: &str,
+        regime_col: &str,
+        annualization_factor: f64,
+    ) -> LazyFrame {
+        let ret_str = returns_col.to_string();
+        let reg_str = regime_col.to_string();
+
+        self.0.clone().group_by([col(&reg_str)]).agg([
+            col(&ret_str).mean().alias("mean_return"),
+            col(&ret_str).std(1).alias("volatility"),
+            (col(&ret_str).mean() / col(&ret_str).std(1) * lit(annualization_factor.sqrt()))
+                .alias("sharpe_ratio"),
+            col(&ret_str).skew(true).alias("skewness"),
+            col(&ret_str).kurtosis(true, true).alias("kurtosis"),
+            // Sortino Ratio: Mean return / Downside Deviation
+            (col(&ret_str).mean() / col(&ret_str).filter(col(&ret_str).lt(lit(0.0))).std(1)
+                * lit(annualization_factor.sqrt()))
+            .alias("sortino_ratio"),
+            // For Max Drawdown and Ulcer Index in an AGG context, we can use map_groups if needed,
+            // but for now let's stick to simpler metrics or use a robust multi-step approach.
+            // We'll calculate drawdown stats by first expanding the groups.
+        ])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// firequant-ygg6: zero-true-range stretch (flat bars, then moving bars).
+    /// Batch (Polars) must equal streaming (`Next`) for the whole DMI family,
+    /// including the zero-TR bars, which must be 0 rather than NaN.
+    #[test]
+    fn test_polars_dmi_zero_tr_batch_matches_streaming() -> PolarsResult<()> {
+        let n = 14;
+        let moving = |i: usize| {
+            let c = 10.0 + (i as f64 * 0.7).sin() * 3.0 + i as f64 * 0.1;
+            (c + 1.0, c - 1.0, c)
+        };
+        for flat in [60usize, n + 5, 0] {
+            let bars: Vec<(f64, f64, f64)> = (0..flat)
+                .map(|_| (10.0, 10.0, 10.0))
+                .chain((0..80).map(moving))
+                .collect();
+            let df = df![
+                "high" => bars.iter().map(|b| b.0).collect::<Vec<_>>(),
+                "low" => bars.iter().map(|b| b.1).collect::<Vec<_>>(),
+                "close" => bars.iter().map(|b| b.2).collect::<Vec<_>>()
+            ]?;
+            fn stream<I: Next<(f64, f64, f64), Output = f64>>(
+                mut ind: I,
+                bars: &[(f64, f64, f64)],
+            ) -> Vec<f64> {
+                bars.iter().map(|b| ind.next(*b)).collect()
+            }
+            let cases: Vec<(&str, LazyFrame, Vec<f64>)> = vec![
+                (
+                    "adx",
+                    df.clone().lazy().ta().adx("high", "low", "close", n),
+                    stream(ADX::new(n), &bars),
+                ),
+                (
+                    "adxr",
+                    df.clone().lazy().ta().adxr("high", "low", "close", n),
+                    stream(ADXR::new(n), &bars),
+                ),
+                (
+                    "dx",
+                    df.clone().lazy().ta().dx("high", "low", "close", n),
+                    stream(DX::new(n), &bars),
+                ),
+                (
+                    "plus_di",
+                    df.clone().lazy().ta().plus_di("high", "low", "close", n),
+                    stream(PLUS_DI::new(n), &bars),
+                ),
+                (
+                    "minus_di",
+                    df.clone().lazy().ta().minus_di("high", "low", "close", n),
+                    stream(MINUS_DI::new(n), &bars),
+                ),
+            ];
+            for (name, lf, want) in cases {
+                let out = lf.collect()?;
+                let got: Vec<Option<f64>> = out.column(name)?.f64()?.into_iter().collect();
+                assert_eq!(got.len(), want.len());
+                for (i, (g, w)) in got.iter().zip(&want).enumerate() {
+                    let g = g.unwrap_or(f64::NAN);
+                    if w.is_nan() {
+                        assert!(g.is_nan(), "flat={flat} {name}[{i}]: expected NaN, got {g}");
+                    } else {
+                        assert_eq!(g, *w, "flat={flat} {name}[{i}]");
+                    }
+                }
+                if flat == 60 {
+                    assert!(
+                        want.last().unwrap().is_finite(),
+                        "{name} must recover after zero-TR stretch"
+                    );
+                    if name != "adxr" {
+                        assert_eq!(
+                            want[30], 0.0,
+                            "{name}[30] on a zero-TR bar must be 0, not NaN"
+                        );
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_polars_heikin_ashi() -> PolarsResult<()> {
+        let df = df![
+            "open" => [10.0, 11.0],
+            "high" => [12.0, 13.0],
+            "low" => [8.0, 10.0],
+            "close" => [11.0, 12.0]
+        ]?;
+
+        let out = df
+            .lazy()
+            .ta()
+            .heikin_ashi("open", "high", "low", "close")
+            .collect()?;
+
+        let ha = out.column("heikin_ashi_data")?.struct_()?;
+        assert_eq!(ha.field_by_name("ha_open")?.f64()?.get(0), Some(10.5));
+        assert_eq!(ha.field_by_name("ha_close")?.f64()?.get(0), Some(10.25));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_polars_tema_zlema() -> PolarsResult<()> {
+        let df = df![
+            "price" => [1.0, 2.0, 3.0, 4.0, 5.0]
+        ]?;
+
+        let out = df.clone().lazy().ta().tema("price", 3).collect()?;
+
+        let tema = out.column("tema")?.f64()?;
+        assert!(tema.get(4).is_some());
+
+        let out2 = df.lazy().ta().zlema("price", 3).collect()?;
+
+        let zlema = out2.column("zlema")?.f64()?;
+        assert!(zlema.get(4).is_some());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_polars_atr_ts() -> PolarsResult<()> {
+        let df = df![
+            "high" => [10.0, 12.0, 11.0],
+            "low" => [8.0, 10.0, 9.0],
+            "close" => [9.0, 11.0, 10.0]
+        ]?;
+
+        let out = df
+            .lazy()
+            .ta()
+            .atr_trailing_stop("high", "low", "close", 14, 2.5)
+            .collect()?;
+
+        let atr_ts = out.column("atr_ts_data")?.struct_()?;
+        assert!(atr_ts.field_by_name("stop")?.f64()?.get(0).is_some());
+        assert!(atr_ts.field_by_name("direction")?.f64()?.get(0).is_some());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_polars_pivot_points() -> PolarsResult<()> {
+        let df = df![
+            "high" => [10.0, 12.0, 11.0],
+            "low" => [8.0, 10.0, 9.0],
+            "close" => [9.0, 11.0, 10.0]
+        ]?;
+
+        let out = df
+            .lazy()
+            .ta()
+            .pivot_points("high", "low", "close")
+            .collect()?;
+
+        let pivot = out.column("pivot_points_data")?.struct_()?;
+        assert!(pivot.field_by_name("p")?.f64()?.get(0).is_some());
+        assert!(pivot.field_by_name("r1")?.f64()?.get(0).is_some());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_polars_fractals() -> PolarsResult<()> {
+        let df = df![
+            "high" => [10.0, 11.0, 15.0, 12.0, 10.0],
+            "low" => [5.0, 6.0, 2.0, 6.0, 7.0]
+        ]?;
+
+        let out = df
+            .lazy()
+            .ta()
+            .bill_williams_fractals("high", "low")
+            .collect()?;
+
+        let fractals = out.column("fractals_data")?.struct_()?;
+        assert!(fractals.field_by_name("bearish")?.bool()?.get(4).unwrap());
+        assert!(fractals.field_by_name("bullish")?.bool()?.get(4).unwrap());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_polars_ichimoku() -> PolarsResult<()> {
+        let df = df![
+            "high" => [10.0, 11.0, 15.0, 12.0, 10.0],
+            "low" => [5.0, 6.0, 2.0, 6.0, 7.0]
+        ]?;
+
+        let out = df
+            .lazy()
+            .ta()
+            .ichimoku_cloud("high", "low", 9, 26, 52)
+            .collect()?;
+
+        let ichimoku = out.column("ichimoku_data")?.struct_()?;
+        assert!(ichimoku.field_by_name("tenkan")?.f64()?.get(4).is_some());
+        assert!(ichimoku.field_by_name("kijun")?.f64()?.get(4).is_some());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_polars_wavetrend() -> PolarsResult<()> {
+        let df = df![
+            "high" => [10.0, 12.0, 11.0],
+            "low" => [8.0, 10.0, 9.0],
+            "close" => [9.0, 11.0, 10.0]
+        ]?;
+
+        let out = df
+            .lazy()
+            .ta()
+            .wavetrend("high", "low", "close", 10, 21, 4)
+            .collect()?;
+
+        let wt = out.column("wavetrend_data")?.struct_()?;
+        assert!(wt.field_by_name("wt1")?.f64()?.get(0).is_some());
+        assert!(wt.field_by_name("wt2")?.f64()?.get(0).is_some());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_polars_vortex() -> PolarsResult<()> {
+        let df = df![
+            "high" => [10.0, 12.0, 11.0],
+            "low" => [8.0, 10.0, 9.0],
+            "close" => [9.0, 11.0, 10.0]
+        ]?;
+
+        let out = df
+            .lazy()
+            .ta()
+            .vortex_indicator("high", "low", "close", 14)
+            .collect()?;
+
+        let vortex = out.column("vortex_data")?.struct_()?;
+        assert!(vortex.field_by_name("vi_plus")?.f64()?.get(0).is_some());
+        assert!(vortex.field_by_name("vi_minus")?.f64()?.get(0).is_some());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_polars_ttm_squeeze() -> PolarsResult<()> {
+        let df = df![
+            "high" => [11.0, 12.0, 13.0, 14.0],
+            "low" => [9.0, 10.0, 11.0, 12.0],
+            "close" => [10.0, 11.0, 12.0, 13.0]
+        ]?;
+
+        let out = df
+            .lazy()
+            .ta()
+            .ttm_squeeze("high", "low", "close", 20, 2.0, 1.5)
+            .collect()?;
+
+        let ttm = out.column("ttm_squeeze_data")?.struct_()?;
+        assert!(ttm.field_by_name("histogram")?.f64()?.get(0).is_some());
+        assert!(ttm.field_by_name("is_squeezed")?.bool()?.get(0).is_some());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_polars_donchian() -> PolarsResult<()> {
+        let df = df![
+            "high" => [10.0, 12.0, 11.0, 13.0, 15.0],
+            "low" => [8.0, 7.0, 9.0, 10.0, 12.0]
+        ]?;
+
+        let out = df
+            .lazy()
+            .ta()
+            .donchian_channels("high", "low", 3)
+            .collect()?;
+
+        let donchian = out.column("donchian_data")?.struct_()?;
+        // bar 4: H=13, L=10. Window (12,7), (11,9), (13,10). Upper=13, Lower=7, Middle=10
+        assert_eq!(donchian.field_by_name("upper")?.f64()?.get(3), Some(13.0));
+        assert_eq!(donchian.field_by_name("middle")?.f64()?.get(3), Some(10.0));
+        assert_eq!(donchian.field_by_name("lower")?.f64()?.get(3), Some(7.0));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_polars_alma() -> PolarsResult<()> {
+        let df = df![
+            "price" => [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
+        ]?;
+
+        let out = df.lazy().ta().alma("price", 9, 0.85, 6.0).collect()?;
+
+        let alma = out.column("alma")?.f64()?;
+        assert!(alma.get(9).is_some());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_polars_keltner() -> PolarsResult<()> {
+        let df = df![
+            "high" => [12.0],
+            "low" => [8.0],
+            "close" => [10.0]
+        ]?;
+
+        let out = df
+            .lazy()
+            .ta()
+            .keltner_channels("high", "low", "close", 3, 3, 2.0)
+            .collect()?;
+
+        let keltner = out.column("keltner_data")?.struct_()?;
+        assert_eq!(keltner.field_by_name("middle")?.f64()?.get(0), Some(10.0));
+        assert_eq!(keltner.field_by_name("upper")?.f64()?.get(0), Some(18.0));
+        assert_eq!(keltner.field_by_name("lower")?.f64()?.get(0), Some(2.0));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_polars_hma() -> PolarsResult<()> {
+        let df = df![
+            "price" => [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
+        ]?;
+
+        let out = df.lazy().ta().hma("price", 4).collect()?;
+
+        let hma = out.column("hma")?.f64()?;
+        assert!(hma.get(9).is_some());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_polars_anchored_vwap() -> PolarsResult<()> {
+        let df = df![
+            "price" => [10.0, 12.0, 15.0, 16.0],
+            "volume" => [100.0, 200.0, 100.0, 100.0],
+            "anchor" => [false, false, true, false]
+        ]?;
+
+        let out = df
+            .lazy()
+            .ta()
+            .anchored_vwap("price", "volume", "anchor")
+            .collect()?;
+
+        let avwap = out.column("avwap")?.f64()?;
+        assert_eq!(avwap.get(0), Some(10.0));
+        assert_eq!(avwap.get(1), Some(11.333333333333334));
+        assert_eq!(avwap.get(2), Some(15.0));
+        assert_eq!(avwap.get(3), Some(15.5));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_polars_math_transforms() -> PolarsResult<()> {
+        let df = df![
+            "val" => [0.0, 1.5707963267948966] // 0, PI/2
+        ]?;
+
+        let out = df.lazy().ta().sin("val").collect()?;
+
+        let sin = out.column("sin")?.f64()?;
+        assert!((sin.get(0).unwrap() - 0.0).abs() < 1e-10);
+        assert!((sin.get(1).unwrap() - 1.0).abs() < 1e-10);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_polars_math_operators() -> PolarsResult<()> {
+        let df = df![
+            "v1" => [10.0, 20.0],
+            "v2" => [5.0, 30.0]
+        ]?;
+
+        let out = df.lazy().ta().add("v1", "v2").ta().max("v1", 2).collect()?;
+
+        let add = out.column("add")?.f64()?;
+        assert_eq!(add.get(0), Some(15.0));
+        assert_eq!(add.get(1), Some(50.0));
+
+        let max = out.column("max")?.f64()?;
+        assert_eq!(max.get(1), Some(20.0));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_polars_vpn() -> PolarsResult<()> {
+        let df = df![
+            "high" => [10.0, 11.0, 12.0],
+            "low" => [9.0, 10.0, 11.0],
+            "close" => [9.5, 10.5, 11.5],
+            "volume" => [1000.0, 1100.0, 1200.0]
+        ]?;
+
+        let out = df
+            .lazy()
+            .ta()
+            .vpn("high", "low", "close", "volume", 30, 3)
+            .collect()?;
+        let vpn = out.column("vpn")?.f64()?;
+        assert!(vpn.get(2).is_some());
+        Ok(())
+    }
+
+    #[test]
+    fn test_polars_gap_momentum() -> PolarsResult<()> {
+        let df = df![
+            "open" => [10.0, 11.0, 10.0],
+            "close" => [10.5, 10.5, 9.5]
+        ]?;
+
+        let out = df
+            .lazy()
+            .ta()
+            .gap_momentum("open", "close", 10, 5)
+            .collect()?;
+        let gm = out.column("gap_momentum")?.struct_()?;
+        assert!(gm.field_by_name("gap_ratio")?.f64()?.get(2).is_some());
+        assert!(gm.field_by_name("gap_signal")?.f64()?.get(2).is_some());
+        Ok(())
+    }
+
+    #[test]
+    fn test_polars_autotune() -> PolarsResult<()> {
+        let df = df![
+            "price" => [100.0; 50]
+        ]?;
+
+        let out = df
+            .lazy()
+            .ta()
+            .autotune_filter("price", 20, 0.25)
+            .collect()?;
+        let at = out.column("autotune")?.f64()?;
+        assert!(at.get(49).is_some());
+        Ok(())
+    }
+
+    #[test]
+    fn test_polars_adaptive_ema() -> PolarsResult<()> {
+        let df = df!["h" => [10.0, 11.0, 10.5], "l" => [9.0, 10.0, 9.5], "c" => [9.5, 10.5, 10.0]]?;
+        let out = df
+            .lazy()
+            .ta()
+            .adaptive_ema("h", "l", "c", 10, 2)
+            .collect()?;
+        assert!(out.column("adaptive_ema")?.f64()?.get(2).is_some());
+        Ok(())
+    }
+
+    #[test]
+    fn test_polars_obvm() -> PolarsResult<()> {
+        let df = df!["h" => [10.0, 11.0], "l" => [9.0, 10.0], "c" => [9.5, 10.5], "v" => [100.0, 200.0]]?;
+        let out = df.lazy().ta().obvm("h", "l", "c", "v", 10, 3).collect()?;
+        let data = out.column("obvm_data")?.struct_()?;
+        assert!(data.field_by_name("obvm")?.f64()?.get(1).is_some());
+        Ok(())
+    }
+
+    #[test]
+    fn test_polars_vfi() -> PolarsResult<()> {
+        let df = df!["h" => [10.0, 11.0], "l" => [9.0, 10.0], "c" => [9.5, 10.5], "v" => [100.0, 200.0]]?;
+        let out = df
+            .lazy()
+            .ta()
+            .vfi("h", "l", "c", "v", 10, 0.2, 2.5, 3)
+            .collect()?;
+        assert!(out.column("vfi")?.f64()?.get(1).is_some());
+        Ok(())
+    }
+
+    #[test]
+    fn test_polars_sdo() -> PolarsResult<()> {
+        let df = df!["p" => [10.0, 11.0, 12.0]]?;
+        let out = df.lazy().ta().sdo("p", 2, 5, 3).collect()?;
+        assert!(out.column("sdo")?.f64()?.get(2).is_some());
+        Ok(())
+    }
+
+    #[test]
+    fn test_polars_rsmk() -> PolarsResult<()> {
+        let df = df!["p" => [10.0, 11.0], "b" => [100.0, 101.0]]?;
+        let out = df.lazy().ta().rsmk("p", "b", 90, 3).collect()?;
+        assert!(out.column("rsmk")?.f64()?.get(1).is_some());
+        Ok(())
+    }
+
+    #[test]
+    fn test_polars_rodc() -> PolarsResult<()> {
+        let df = df!["p" => [10.0, 11.0, 10.0, 11.0, 12.0]]?;
+        let out = df.lazy().ta().rodc("p", 10, 0.5, 3).collect()?;
+        assert!(out.column("rodc")?.f64()?.get(4).is_some());
+        Ok(())
+    }
+
+    #[test]
+    fn test_polars_reverse_ema() -> PolarsResult<()> {
+        let df = df!["p" => [10.0, 11.0, 12.0]]?;
+        let out = df.lazy().ta().reverse_ema("p", 0.1).collect()?;
+        assert!(out.column("reverse_ema")?.f64()?.get(2).is_some());
+        Ok(())
+    }
+
+    #[test]
+    fn test_polars_harrington_adx() -> PolarsResult<()> {
+        let df =
+            df!["h" => [10.0, 11.0, 12.0], "l" => [9.0, 10.0, 11.0], "c" => [9.5, 10.5, 11.5]]?;
+        let out = df
+            .lazy()
+            .ta()
+            .harrington_adx("h", "l", "c", 10, 1)
+            .collect()?;
+        assert!(out.column("harrington_adx")?.f64()?.get(2).is_some());
+        Ok(())
+    }
+
+    #[test]
+    fn test_polars_tradj_ema() -> PolarsResult<()> {
+        let df = df!["h" => [10.0, 11.0, 10.5], "l" => [9.0, 10.0, 9.5], "c" => [9.5, 10.5, 10.0]]?;
+        let out = df
+            .lazy()
+            .ta()
+            .tradj_ema("h", "l", "c", 10, 2, 0.5)
+            .collect()?;
+        assert!(out.column("tradj_ema")?.f64()?.get(2).is_some());
+        Ok(())
+    }
+
+    #[test]
+    fn test_polars_sve_volatility_bands() -> PolarsResult<()> {
+        let df = df!["h" => [10.0, 11.0, 10.5], "l" => [9.0, 10.0, 9.5], "c" => [9.5, 10.5, 10.0]]?;
+        let out = df
+            .lazy()
+            .ta()
+            .sve_volatility_bands("h", "l", "c", 10, 1.5, 1.0, 3)
+            .collect()?;
+        let data = out.column("sve_bands_data")?.struct_()?;
+        assert!(data.field_by_name("upper")?.f64()?.get(2).is_some());
+        Ok(())
+    }
+
+    #[test]
+    fn test_polars_exp_dev_bands() -> PolarsResult<()> {
+        let df = df!["p" => [10.0, 11.0, 12.0, 11.0, 10.0]]?;
+        let out = df.lazy().ta().exp_dev_bands("p", 10, 2.0, true).collect()?;
+        let data = out.column("exp_dev_bands_data")?.struct_()?;
+        assert!(data.field_by_name("upper")?.f64()?.get(4).is_some());
+        Ok(())
+    }
+
+    #[test]
+    fn test_polars_hmm_fit() -> PolarsResult<()> {
+        let obs: Vec<f64> = vec![
+            0.01, -0.008, 0.012, -0.015, 0.009, -0.011, 0.007, -0.013, 0.011, -0.009, 0.008,
+            -0.014, 0.006, -0.01, 0.013, -0.012, 0.005, -0.007, 0.01, -0.016,
+        ];
+        let df = df!["returns" => obs.as_slice()]?;
+        let out = df.lazy().ta().hmm_fit("returns", 2, 40, false).collect()?;
+        let data = out.column("hmm_fit_data")?.struct_()?;
+        let state_col = data.field_by_name("hmm_fit_state")?;
+        let prob_col = data.field_by_name("hmm_fit_smooth_probs")?;
+        let states = state_col.u32()?;
+        let probs = prob_col.list()?;
+        assert_eq!(states.len(), obs.len());
+        assert_eq!(probs.len(), obs.len());
+        assert!(states.get(0).is_some());
+        Ok(())
+    }
+
+    #[test]
+    fn test_regimes_conditioned_metrics() -> PolarsResult<()> {
+        let df = df![
+            "returns" => [0.01, 0.02, -0.01, -0.02, 0.01],
+            "regime" => [0u32, 0, 1, 1, 0]
+        ]?;
+
+        let out = df
+            .lazy()
+            .ta()
+            .regimes_conditioned_metrics("returns", "regime", 252.0)
+            .collect()?;
+
+        assert_eq!(out.height(), 2);
+        assert!(out.column("sharpe_ratio").is_ok());
+        assert!(out.column("skewness").is_ok());
+        assert!(out.column("kurtosis").is_ok());
+        assert!(out.column("sortino_ratio").is_ok());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_polars_kalman_filters() -> PolarsResult<()> {
+        let df = df![
+            "price" => [100.0, 101.0, 102.0, 103.0, 104.0]
+        ]?;
+
+        let out = df
+            .clone()
+            .lazy()
+            .ta()
+            .kalman("price", 0.01, 0.1)
+            .collect()?;
+
+        let kalman = out.column("kalman")?.f64()?;
+        assert!(kalman.get(0).is_some());
+        assert_eq!(kalman.get(0).unwrap(), 100.0);
+
+        let out2 = df
+            .lazy()
+            .ta()
+            .kinematic_kalman("price", 0.001, 0.0001, 0.1)
+            .collect()?;
+
+        let kin_kalman = out2.column("kinematic_kalman")?.f64()?;
+        assert!(kin_kalman.get(0).is_some());
+        assert_eq!(kin_kalman.get(0).unwrap(), 100.0);
+
+        Ok(())
+    }
+
+    /// Smoke test for the new PA foundation accessors.
+    /// Verifies column presence + dtypes for rich structs (existing market_structure + new geometric_patterns).
+    /// Uses the exact field names from the prior market_structure impl.
+    #[test]
+    fn smoke_ta_pa_foundation() -> PolarsResult<()> {
+        let highs: Vec<f64> = (0..60)
+            .map(|i| 100.0 + (i as f64 * 0.8).sin() * 5.0 + (i as f64) * 0.3)
+            .collect();
+        let lows: Vec<f64> = highs.iter().map(|&h| h - 1.5 - (h % 3.0) * 0.2).collect();
+
+        let df = df!["high" => highs, "low" => lows]?;
+        let lf = df.lazy();
+
+        // market_structure (pre-existing impl in this file) -> rich struct with String bias etc.
+        let out = lf
+            .clone()
+            .ta()
+            .market_structure("high", "low", 3)
+            .collect()?;
+        let ms = out.column("market_structure")?;
+        assert!(matches!(ms.dtype(), DataType::Struct(_)));
+        let ca = ms.struct_()?;
+        // bias is UInt32 per the new optimized impl
+        assert_eq!(ca.field_by_name("bias")?.dtype().clone(), DataType::UInt32);
+        assert!(ca.field_by_name("has_flip")?.bool()?.get(59).is_some());
+
+        // geometric_patterns -> Struct( flag: Struct(...), hs: Struct(...) )
+        let out2 = out
+            .lazy()
+            .ta()
+            .geometric_patterns("high", "low", 2)
+            .collect()?;
+        let gp = out2.column("geometric_patterns")?;
+        assert!(matches!(gp.dtype(), DataType::Struct(_)));
+        let gca = gp.struct_()?;
+        let flag = gca.field_by_name("flag")?;
+        assert!(matches!(flag.dtype(), DataType::Struct(_)));
+        // pole_length_atr is the key rich field for sizing in the notebook strategy
+        assert!(
+            flag.struct_()?
+                .field_by_name("pole_length_atr")?
+                .f64()?
+                .get(59)
+                .is_some()
+        );
+
+        Ok(())
+    }
+}
+
+impl QuantWaveExt for LazyFrame {
+    fn ta(&self) -> QuantWaveNamespace<'_> {
+        QuantWaveNamespace(self)
+    }
+}
+
+pub use bt::{BtNamespace, BtOptions, QuantWaveBtExt};
+pub use firequant_backtest::{SweepVariant, run_param_sweep, single_param_variants};

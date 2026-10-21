@@ -4,13 +4,53 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
-description = "Streaming indicator traits and shared primitives for firequant."
+description = "Core technical-analysis engine: indicators, regimes, features, and Next<T> streaming."
 repository.workspace = true
+homepage.workspace = true
 readme = "../README.md"
+documentation = "https://docs.rs/firequant-core"
+categories.workspace = true
+keywords.workspace = true
 
 [lints]
 workspace = true
 
+[features]
+default = []
+test_utils = []
+
 [dependencies]
-serde = { workspace = true }
 thiserror = { workspace = true }
+approx = { workspace = true }
+chrono = { workspace = true }
+log = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+rand = { workspace = true, optional = true }
+rustfft = { workspace = true, optional = true }
+nalgebra = { workspace = true }
+statrs = { workspace = true }
+
+[dev-dependencies]
+talib-rs = { workspace = true }
+proptest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+rand = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name = "indicator_throughput"
+harness = false
+
+[[bench]]
+name = "talib_comparison"
+harness = false
+
+[[bin]]
+name = "benchmark_export"
+path = "src/bin/benchmark_export.rs"
+
+[[bin]]
+name = "gen_gold_griffiths"
+path = "src/bin/gen_gold_griffiths.rs"

@@ -1,6 +1,7 @@
 # Attribution
 
-Initial execution and order-simulation code in `firequant-exec` is adapted from
+`firequant-core`, `firequant-backtest`, and `firequant-polars` are ported from
+QuantWave (MIT). Initial standalone `firequant-exec` order code was adapted from
 [QuantWave](https://github.com/lavs9/quantwave) (`quantwave-backtest` — orders,
 order_exec, stops, live_bridge) and `quantwave-core` (traits, streaming, utils).
 

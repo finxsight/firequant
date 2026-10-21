@@ -4,7 +4,7 @@
 //! Rather than modifying every indicator struct, wrap any `Next` implementor in
 //! `TrackedNext` to get `bars_consumed`, `warmup_bars`, and `is_ready`.
 //!
-//! Python DX: `quantwave.wrap_streaming()` mirrors this at the Python layer;
+//! Python DX: `firequant.wrap_streaming()` mirrors this at the Python layer;
 //! Rust consumers use `track()` or `TrackedNext::new()` directly.
 
 use crate::traits::Next;
@@ -95,21 +95,11 @@ pub fn warmup_from_params(params: &[(&str, usize)]) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::traits::Next;
-
-    #[derive(Clone)]
-    struct Passthrough;
-
-    impl Next<f64> for Passthrough {
-        type Output = f64;
-        fn next(&mut self, input: f64) -> Self::Output {
-            input
-        }
-    }
+    use crate::indicators::smoothing::EMA;
 
     #[test]
     fn test_tracked_next_readiness() {
-        let mut tracked = track(Passthrough, 5);
+        let mut tracked = track(EMA::new(5), 5);
         assert!(!tracked.is_ready());
         assert_eq!(tracked.bars_consumed(), 0);
 
@@ -125,7 +115,7 @@ mod tests {
 
     #[test]
     fn test_zero_warmup_uses_heuristic() {
-        let mut tracked = track(Passthrough, 0);
+        let mut tracked = track(EMA::new(3), 0);
         assert!(!tracked.is_ready());
         tracked.next(1.0);
         assert!(tracked.is_ready());
@@ -133,7 +123,7 @@ mod tests {
 
     #[test]
     fn test_reset_clears_readiness() {
-        let mut tracked = track(Passthrough, 2);
+        let mut tracked = track(EMA::new(3), 2);
         tracked.next(1.0);
         tracked.next(2.0);
         assert!(tracked.is_ready());
