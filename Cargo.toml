@@ -5,6 +5,7 @@ members = [
     "firequant-exec",
     "firequant-backtest",
     "firequant-polars",
+    "firequant-stress",
 ]
 resolver = "2"
 

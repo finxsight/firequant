@@ -8,3 +8,6 @@
 .env
 .env.*
 !.env.example
+
+# EODHD full-history cache (local only)
+.cache/

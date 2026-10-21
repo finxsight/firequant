@@ -27,6 +27,16 @@ cargo test -p firequant --test eodhd_live -- --nocapture
 cargo run -p firequant --example eodhd_rsi_backtest -- MSFT.US
 ```
 
+### 100-ticker full-history stress bed
+
+```bash
+cargo run -p firequant-stress --bin eodhd_stress -- fetch   # cache under .cache/eodhd/
+cargo run -p firequant-stress --bin eodhd_stress -- stress
+cargo test -p firequant-stress --test stress_bed_cached
+```
+
+See `firequant-stress/README.md`.
+
 ## Quick example (order sim)
 
 ```rust
