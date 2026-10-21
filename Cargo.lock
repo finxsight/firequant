@@ -689,6 +689,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "firequant-stress"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "firequant-backtest",
+ "firequant-core",
+ "polars",
+ "reqwest",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "fnv"
 version = "1.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
