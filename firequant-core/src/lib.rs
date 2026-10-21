@@ -1,4 +1,4 @@
-//! Core streaming primitives for rustquant.
+//! Core streaming primitives for firequant.
 //!
 //! Indicators and regime tooling from upstream QuantWave are ported incrementally;
 //! this crate starts with the `Next<T>` contract and warmup tracking.

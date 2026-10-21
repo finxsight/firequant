@@ -1,7 +1,7 @@
-//! Run with: cargo run -p rustquant --example order_sim
+//! Run with: cargo run -p firequant --example order_sim
 
 use chrono::TimeZone;
-use rustquant::exec::{
+use firequant::exec::{
     CostModel, ExecBar, ExecutionModel, Order, OrderSim, OrderType, Side,
 };
 

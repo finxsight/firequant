@@ -1,19 +1,19 @@
-# rustquant
+# firequant
 
-Lean Rust library for **streaming indicators** and **deterministic order execution**. This repo is a Finxsight fork of ideas and code from [QuantWave](https://github.com/lavs9/quantwave), stripped of Python, Polars plugins, WASM, and notebook-oriented backtest surfaces.
+Lean Rust library for **streaming indicators** and **deterministic order execution**, built for [FIRE](https://finxsight.com) / Finxsight. Adapted from [QuantWave](https://github.com/lavs9/quantwave) with Python, Polars plugins, WASM, and notebook-oriented backtest surfaces removed.
 
 ## Crates
 
 | Crate | Role |
 |-------|------|
-| `rustquant` | Facade re-exporting `core` and `exec` |
-| `rustquant-core` | `Next<T>` trait, warmup tracking, shared utilities |
-| `rustquant-exec` | Order types, OHLC fills, brackets/OCO, stepping `OrderSim`, stops, live-bridge trait |
+| `firequant` | Facade re-exporting `core` and `exec` |
+| `firequant-core` | `Next<T>` trait, warmup tracking, shared utilities |
+| `firequant-exec` | Order types, OHLC fills, brackets/OCO, stepping `OrderSim`, stops, live-bridge trait |
 
 ## Quick example
 
 ```rust
-use rustquant::exec::{
+use firequant::exec::{
     CostModel, ExecutionModel, Order, OrderSim, OrderType, Side, ExecBar,
 };
 use chrono::Utc;

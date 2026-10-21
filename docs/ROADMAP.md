@@ -1,8 +1,8 @@
-# rustquant roadmap
+# firequant roadmap
 
 ## Done (v0.1 bootstrap)
 
-- Workspace split: `rustquant-core`, `rustquant-exec`, facade `rustquant`
+- Workspace split: `firequant-core`, `firequant-exec`, facade `firequant`
 - Order-driven stepping simulator with batch/stream parity tests (from QuantWave)
 - Stops evaluation primitives and `LiveBridge` trait stub
 - No Python / Polars / WASM / xtask / PyPI packaging

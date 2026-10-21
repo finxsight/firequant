@@ -1,5 +1,5 @@
 [package]
-name = "rustquant-exec"
+name = "firequant-exec"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -18,7 +18,7 @@ expect_used = "deny"
 needless_range_loop = "allow"
 
 [dependencies]
-rustquant-core = { workspace = true }
+firequant-core = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true }
 chrono = { workspace = true }

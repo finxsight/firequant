@@ -1,6 +1,6 @@
 # Attribution
 
-Initial execution and order-simulation code in `rustquant-exec` is adapted from
+Initial execution and order-simulation code in `firequant-exec` is adapted from
 [QuantWave](https://github.com/lavs9/quantwave) (`quantwave-backtest` — orders,
 order_exec, stops, live_bridge) and `quantwave-core` (traits, streaming, utils).
 

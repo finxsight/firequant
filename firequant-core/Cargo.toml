@@ -1,10 +1,10 @@
 [package]
-name = "rustquant-core"
+name = "firequant-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
-description = "Streaming indicator traits and shared primitives for rustquant."
+description = "Streaming indicator traits and shared primitives for firequant."
 repository.workspace = true
 readme = "../README.md"
 
