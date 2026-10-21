@@ -20,7 +20,7 @@ Requires **Rust nightly** (see `rust-toolchain.toml`).
 cargo test --workspace
 ```
 
-Live EODHD smoke (needs `EODHD_API_KEY`):
+Live EODHD smoke (set `EODHD_API_KEY` in your environment or a local `.env` — see `.env.example`; **never commit the key**):
 
 ```bash
 cargo test -p firequant --test eodhd_live -- --nocapture

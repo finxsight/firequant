@@ -3,3 +3,8 @@
 .idea/
 .vscode/
 *.profraw
+
+# Secrets — never commit API keys (use env or local .env only)
+.env
+.env.*
+!.env.example
